@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intext</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { scrollbar-width: none; }
+    *::-webkit-scrollbar { width: 0; height: 0; display: none; background: transparent; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      background: #f7f4ef;
+      background: light-dark(#f7f4ef, #1c1b19);
+      font-family: var(--font-interface);
+      -webkit-font-smoothing: antialiased;
+      font-size: 15px;
+      line-height: 1.45;
+      color: #1c1b19;
+      color: var(--text-primary);
+    }
+    .sheet {
+      box-sizing: border-box;
+      height: 100%;
+      overflow: auto;
+      padding: 16px 18px 18px;
+      background: #f7f4ef;
+      background: light-dark(#f7f4ef, #1c1b19);
+    }
+    .head {
+      position: sticky;
+      top: -16px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      min-height: 32px;
+      margin: -16px -18px 6px;
+      padding: 16px 18px 8px;
+      background: light-dark(rgba(247, 244, 239, 0.94), rgba(28, 27, 25, 0.94));
+      backdrop-filter: blur(16px);
+    }
+    .head::after {
+      content: "";
+      position: absolute;
+      bottom: -12px;
+      left: 0;
+      right: 0;
+      height: 12px;
+      background: linear-gradient(to bottom, light-dark(rgba(236, 230, 221, 0.88), rgba(15, 14, 13, 0.8)), transparent);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease;
+    }
+    .sheet.is-scrolled .head::after { opacity: 1; }
+    .brand { display: flex; align-items: center; height: 28px; }
+    .wordmark {
+      margin: 0 0 0 9px;
+      font-family: "Segoe Script", Gabriola, cursive;
+      font-size: 28px;
+      line-height: 32px;
+      font-weight: 400;
+      font-style: normal;
+      letter-spacing: -0.04em;
+    }
+    .brand img { display: block; width: 28px; height: 28px; }
+    .grid { display: grid; gap: 14px; }
+    #fields { display: grid; gap: 4px; }
+    .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+    label.field {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 22px;
+      color: inherit;
+    }
+    input[type="text"], input[type="password"], select {
+      box-sizing: border-box;
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 9px;
+      background: light-dark(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.06));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08));
+      color: inherit;
+      font: inherit;
+      font-size: 15px;
+    }
+    input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear { display: none; }
+    .line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      min-height: 36px;
+    }
+    .line > .name { flex: 1 1 auto; min-width: 0; }
+    .line > input.value,
+    .line > .choice {
+      flex: 0 0 104px;
+      width: 104px;
+      min-width: 0;
+      max-width: 104px;
+    }
+    .line > .switch { flex: 0 0 38px; }
+    .line input.value {
+      width: 104px;
+      max-width: 104px;
+      min-width: 0;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .choice { position: relative; min-width: 0; }
+    .native-select {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .name {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 22px;
+    }
+    .grid > div > .name {
+      margin-bottom: 6px;
+    }
+    .line input, .line select, .line .menu-btn { height: 32px; padding: 0 8px; font-size: 15px; }
+    .rule {
+      height: 1px;
+      margin: 20px 0 12px;
+      border: 0;
+      background: var(--rule-color);
+    }
+    .live-head {
+      display: flex;
+      align-items: center;
+      min-height: 24px;
+    }
+    .kicker {
+      font-size: 15px;
+      line-height: 22px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .code {
+      box-sizing: border-box;
+      width: 100%;
+      margin: 8px 0 0;
+      max-height: min(240px, 38vh);
+      overflow: auto;
+      scrollbar-width: none;
+      padding: 0;
+      border-radius: 12px;
+      background: light-dark(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.045));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.06), rgba(255, 255, 255, 0.07));
+    }
+    .code code {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      padding: 12px;
+      font-family: "Cascadia Mono", ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
+      font-variant-ligatures: none;
+      font-size: 14px;
+      line-height: 22px;
+      font-weight: 400;
+      white-space: pre-wrap;
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      color: light-dark(#6e675f, #c8c2ba);
+    }
+    .tok-key { color: light-dark(#8b523a, #dfb293); }
+    .tok-str { color: light-dark(#416b50, #aec9b3); }
+    .tok-num { color: light-dark(#4b6580, #aec1d8); }
+    .tok-lit { color: light-dark(#765c84, #c8b4d3); }
+    button, img, svg { -webkit-user-drag: none; }
+    input, textarea, select, .code, .code code { user-select: text; -webkit-user-select: text; }
+    button { font: inherit; background: transparent; border: 0; margin: 0; padding: 0; color: inherit; }
+    .help, .iconbtn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      color: var(--text-tertiary);
+    }
+    .help { width: 16px; height: 16px; margin: -1px 0; font-size: 12px; font-weight: 560; }
+    .iconbtn { margin-left: auto; }
+    .iconbtn svg, .help svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .stash { margin-left: auto; }
+    .switch {
+      position: relative;
+      display: inline-flex;
+      box-sizing: border-box;
+      width: 38px;
+      height: 22px;
+      min-width: 38px;
+      min-height: 22px;
+      flex: 0 0 38px;
+      padding: 0;
+      border: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      border-radius: 999px;
+      background: light-dark(#d0ccc7, #484644);
+      box-shadow: none;
+      outline: none;
+      transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .switch[aria-checked="true"] { background: var(--enabled-fill); }
+    .switch[aria-checked="true"]::after { transform: translateX(16px); }
+    .menu-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      height: 34px;
+      padding: 0 8px 0 10px;
+      border-radius: 9px;
+      background: light-dark(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.06));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08));
+      color: inherit;
+      font: inherit;
+      font-size: 15px;
+      text-align: left;
+    }
+    .line .menu-btn { height: 32px; font-size: 15px; }
+    .menu-btn svg {
+      flex-shrink: 0;
+      width: 11px;
+      height: 11px;
+      margin-left: auto;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.9;
+    }
+    .menu-pop {
+      position: fixed;
+      z-index: 50;
+      box-sizing: border-box;
+      width: 0;
+      min-width: 0;
+      max-height: 240px;
+      padding: 5px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-width: none;
+      animation: menu-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .menu-pop::-webkit-scrollbar { width: 0; height: 0; display: none; }
+    .menu-opt {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      height: 30px;
+      padding: 0 8px;
+      border-radius: 7px;
+      color: inherit;
+      text-align: left;
+    }
+    @keyframes menu-in {
+      from { opacity: 0; transform: translateY(4px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    .line.is-off .name { color: var(--text-secondary); }
+    .line.is-off input, .line.is-off .menu-btn {
+      color: var(--text-secondary);
+      background: light-dark(rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.035));
+    }
+
+    .keys { display: grid; gap: 8px; margin-top: 12px; }
+    .keyline { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+    .keycap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-left: auto;
+      min-width: 148px;
+      max-width: calc(100% - 88px);
+      height: 34px;
+      padding: 0 12px;
+      overflow: hidden;
+      border-radius: 9px;
+      background: light-dark(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.06));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08));
+      color: inherit;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+    .keycap-keys {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .keycap-state {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 560;
+      letter-spacing: 0;
+      color: var(--warning-ink);
+    }
+    .keycap.is-on { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
+    .keycap.is-bad {
+      justify-content: space-between;
+      background: light-dark(rgba(168, 72, 48, 0.08), rgba(240, 160, 140, 0.1));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(156, 64, 48, 0.34), rgba(240, 178, 164, 0.38));
+    }
+    .keycap.is-bad .keycap-keys { text-align: left; }
+    input[type="text"], input[type="password"], .menu-btn, .keycap {
+      transition: background-color 120ms ease, box-shadow 120ms ease;
+    }
+    input[type="text"]:hover, input[type="password"]:hover,
+    .menu-btn:hover, .menu-btn[aria-expanded="true"], .keycap:not(.is-on):not(.is-bad):hover {
+      box-shadow: inset 0 0 0 1px var(--field-hover-border);
+    }
+    .keycap:active { background: var(--control-pressed); }
+    .line.is-invalid input, .line.is-invalid .menu-btn {
+      background: light-dark(rgba(168, 72, 48, 0.055), rgba(240, 160, 140, 0.07));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(156, 64, 48, 0.34), rgba(240, 178, 164, 0.38));
+    }
+    :root .combo:has(:focus-visible) {
+      outline: 1.5px solid var(--focus-ring);
+      outline-offset: 0;
+      border-radius: 9px;
+    }
+    :root .combo :focus-visible { outline: none; }
+    .line .combo input.value { width: 100%; padding-left: 26px; padding-right: 8px; }
+    .line .combo .menu-btn {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 26px;
+      height: 32px;
+      padding: 0;
+      justify-content: center;
+      background: transparent;
+      box-shadow: none;
+    }
+    .line .combo .menu-btn svg { margin: 0; }
+    .combo:not(:has([aria-invalid="true"])):hover input.value,
+    .combo:not(:has([aria-invalid="true"])):has(.menu-btn[aria-expanded="true"]) input.value {
+      box-shadow: inset 0 0 0 1px var(--field-hover-border);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .switch, .switch::after, input, .menu-btn, .keycap { transition: none; }
+      .menu-pop { animation: none; }
+      .head::after { transition: none; }
+    }
+    .resize {
+      position: fixed;
+      z-index: 60;
+      background: transparent;
+    }
+    .resize-n, .resize-s { left: 18px; right: 18px; height: 10px; cursor: ns-resize; }
+    .resize-n { top: 0; }
+    .resize-s { bottom: 0; }
+    .resize-e, .resize-w { top: 18px; bottom: 18px; width: 10px; cursor: ew-resize; }
+    .resize-e { right: 0; }
+    .resize-w { left: 0; }
+    .resize-nw, .resize-ne, .resize-sw, .resize-se { width: 16px; height: 16px; }
+    .resize-nw { top: 0; left: 0; cursor: nwse-resize; }
+    .resize-ne { top: 0; right: 0; cursor: nesw-resize; }
+    .resize-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+    .resize-se { bottom: 0; right: 0; cursor: nwse-resize; }
+    html.is-resizing, html.is-resizing * { user-select: none; }
+  </style>
+  <link rel="stylesheet" href="controls.css">
+</head>
+<body>
+  <form class="sheet" id="sheet" autocomplete="off">
+    <div class="head pywebview-drag-region">
+      <picture class="brand">
+        <source srcset="mark-light.png" media="(prefers-color-scheme: dark)">
+        <img src="mark.png" alt="" draggable="false" width="28" height="28">
+      </picture>
+      <h1 class="wordmark" lang="en">Intext</h1>
+      <button type="button" class="stash window-dot" id="stash" aria-label="收到托盘" data-tooltip="收到托盘">
+      </button>
+    </div>
+    <div class="grid">
+      <div>
+        <label class="field" for="model">模型</label>
+        <input id="model" type="text" spellcheck="false">
+      </div>
+      <div>
+        <span class="name">接口<button type="button" class="help" aria-label="接口说明">?<span class="tip">完整的 chat completions 地址。</span></button></span>
+        <input id="endpoint" type="text" spellcheck="false">
+      </div>
+      <div>
+        <span class="name">密钥<button type="button" class="help" aria-label="密钥说明">?<span class="tip">只留在本机，不会进入请求。</span></button></span>
+        <input id="api-key" type="password" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="pair">
+        <div>
+          <label class="field" for="source">原文</label>
+          <select id="source"></select>
+        </div>
+        <div>
+          <label class="field" for="target">译文</label>
+          <select id="target"></select>
+        </div>
+      </div>
+    </div>
+    <div class="keys">
+      <div class="keyline">
+        <span class="name">划词<button type="button" class="help" aria-label="划词热键说明">?<span class="tip" id="select-tip">需要修饰键。Esc 取消录制。</span></button></span>
+        <button type="button" class="keycap" id="hotkey-select"></button>
+      </div>
+      <div class="keyline">
+        <span class="name">截图<button type="button" class="help" aria-label="截图热键说明">?<span class="tip" id="shot-tip">拖选画面后识别文字。Esc 取消录制。</span></button></span>
+        <button type="button" class="keycap" id="hotkey-shot"></button>
+      </div>
+    </div>
+    <hr class="rule">
+    <div id="fields"></div>
+    <hr class="rule">
+    <div class="live-head">
+      <span class="kicker">本次请求</span>
+      <button type="button" class="help" aria-label="本次请求说明">?<span class="tip">未启用或无效的字段不会出现在这段请求里。</span></button>
+    </div>
+    <pre class="code" id="live" tabindex="0" role="region" aria-label="请求 JSON" aria-live="polite"><code></code></pre>
+  </form>
+  <script src="scroll.js"></script>
+  <script src="controls.js"></script>
+  <script>
+    const LABELS = {
+      auto: "自动",
+      zh: "简体中文",
+      "zh-Hans": "简体中文",
+      en: "英语",
+      ja: "日语",
+      ko: "韩语",
+      fr: "法语",
+      de: "德语",
+      es: "西班牙语",
+      ru: "俄语"
+    };
+    const SOURCE_OPTIONS = ["auto", "zh", "en", "ja", "ko", "fr", "de", "es", "ru"];
+    const TARGET_OPTIONS = ["zh", "en", "ja", "ko", "fr", "de", "es", "ru"];
+    const SPECS = [
+      { key: "temperature", label: "温度", kind: "number", value: "1", hint: "部分模型不接受。" },
+      { key: "top_p", label: "top_p", kind: "number", value: "1", hint: "通常与温度只开一个。" },
+      { key: "max_tokens", label: "最大长度", kind: "number", value: "1024", hint: "不启用则由模型决定。" },
+      { key: "reasoning_effort", label: "思考强度", kind: "combo", value: "medium", options: ["low", "medium", "high"], hint: "可选择预设或输入模型支持的值；不接受就保持关闭。" },
+      { key: "frequency_penalty", label: "频率惩罚", kind: "number", value: "0", hint: "降低重复用词。" },
+      { key: "presence_penalty", label: "存在惩罚", kind: "number", value: "0", hint: "鼓励新内容。" }
+    ];
+    const state = {
+      endpoint: "https://api.openai.com/v1/chat/completions",
+      apiKey: "",
+      model: "",
+      source: "auto",
+      target: "zh",
+      hotkey: "ctrl+alt+q",
+      shotHotkey: "ctrl+alt+e",
+      hotkeyError: "",
+      shotHotkeyError: "",
+      hotkeyShown: "",
+      shotHotkeyShown: "",
+      fields: Object.fromEntries(SPECS.map((spec) => [spec.key, { enabled: false, value: spec.value }]))
+    };
+    let saveTimer = 0;
+
+    function languageLabel(code) {
+      return LABELS[code] || code;
+    }
+
+    function systemPrompt(source, target) {
+      const targetName = languageLabel(target);
+      if (!source || source === "auto") {
+        return "Translate the user's text into " + targetName + ". Return only the translation.";
+      }
+      return "Translate the user's text from " + languageLabel(source) + " into " + targetName + ". Return only the translation.";
+    }
+
+    // Same spelling rule as fields.NUMBER_TEXT. Do not use Number() on raw text.
+    const NUMBER_TEXT = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+    function coerce(spec, raw) {
+      const text = String(raw == null ? "" : raw).trim();
+      if (!text) return null;
+      if (spec.kind === "number") {
+        if (!NUMBER_TEXT.test(text)) return null;
+        const number = Number(text);
+        if (!Number.isFinite(number)) return null;
+        return Number.isInteger(number) ? number : number;
+      }
+      return text;
+    }
+
+    function requestBody() {
+      const body = {
+        model: state.model.trim(),
+        messages: [
+          { role: "system", content: systemPrompt(state.source, state.target) },
+          { role: "user", content: "<选中文字>" }
+        ]
+      };
+      SPECS.forEach((spec) => {
+        const item = state.fields[spec.key];
+        if (!item || !item.enabled) return;
+        const value = coerce(spec, item.value);
+        if (value === null) return;
+        body[spec.key] = value;
+      });
+      return body;
+    }
+
+    function highlight(text) {
+      const pattern = /"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\b(?:true|false|null)\b|[{}\[\],:]|\s+/g;
+      const code = document.querySelector("#live code");
+      code.replaceChildren();
+      let match;
+      let last = 0;
+      const tokens = [];
+      while ((match = pattern.exec(text))) {
+        if (match.index > last) tokens.push(text.slice(last, match.index));
+        tokens.push(match[0]);
+        last = match.index + match[0].length;
+      }
+      if (last < text.length) tokens.push(text.slice(last));
+      const fragment = document.createDocumentFragment();
+      tokens.forEach((token, index) => {
+        let className = "";
+        if (token[0] === '"') {
+          let next = index + 1;
+          while (next < tokens.length && /^\s+$/.test(tokens[next])) next += 1;
+          className = tokens[next] === ":" ? "tok-key" : "tok-str";
+        } else if (/^-?\d/.test(token)) {
+          className = "tok-num";
+        } else if (token === "true" || token === "false" || token === "null") {
+          className = "tok-lit";
+        }
+        if (!className) {
+          fragment.append(document.createTextNode(token));
+          return;
+        }
+        const span = document.createElement("span");
+        span.className = className;
+        span.textContent = token;
+        fragment.append(span);
+      });
+      code.append(fragment);
+    }
+
+    function renderCode() {
+      const text = JSON.stringify(requestBody(), null, 2);
+      const live = document.getElementById("live");
+      if (live.dataset.signature === text) return;
+      live.dataset.signature = text;
+      highlight(text);
+    }
+
+    const SELECT_TIP = "需要修饰键。Esc 取消录制。";
+    const SHOT_TIP = "拖选画面后识别文字。Esc 取消录制。";
+    const ERROR_TIPS = {
+      "已被占用": "注册失败，可能已被其他程序占用。",
+      "注册失败": "没有注册成功。",
+      "无效": "这个组合无法注册。",
+      "重复": "不能和另一个快捷键相同。"
+    };
+
+    function hotkeyLabel(spec) {
+      const names = { ctrl: "Ctrl", alt: "Alt", shift: "Shift", win: "Win" };
+      return String(spec || "").split("+").filter(Boolean).map((part) => names[part] || part.toUpperCase()).join(" + ");
+    }
+
+    let recording = "";
+
+    function paintKey(button, recordingNow, spec, error) {
+      const failed = !recordingNow && !!error;
+      button.replaceChildren();
+      const keys = document.createElement("span");
+      keys.className = "keycap-keys";
+      keys.textContent = recordingNow ? "请按键" : hotkeyLabel(spec);
+      button.dataset.tooltip = recordingNow ? "Esc 取消录制" : hotkeyLabel(spec) + (failed ? " · " + error : "");
+      button.append(keys);
+      button.classList.toggle("is-on", recordingNow);
+      button.classList.toggle("is-bad", failed);
+      if (failed) {
+        button.setAttribute("aria-invalid", "true");
+        const note = document.createElement("span");
+        note.className = "keycap-state";
+        note.textContent = error;
+        button.append(note);
+      } else {
+        button.removeAttribute("aria-invalid");
+      }
+    }
+
+    function renderKeys() {
+      const selectError = recording === "hotkey" ? "" : state.hotkeyError;
+      const shotError = recording === "shotHotkey" ? "" : state.shotHotkeyError;
+      paintKey(
+        document.getElementById("hotkey-select"),
+        recording === "hotkey",
+        state.hotkeyShown || state.hotkey,
+        selectError
+      );
+      paintKey(
+        document.getElementById("hotkey-shot"),
+        recording === "shotHotkey",
+        state.shotHotkeyShown || state.shotHotkey,
+        shotError
+      );
+      document.getElementById("select-tip").textContent = selectError ? (ERROR_TIPS[selectError] || SELECT_TIP) : SELECT_TIP;
+      document.getElementById("shot-tip").textContent = shotError ? (ERROR_TIPS[shotError] || SHOT_TIP) : SHOT_TIP;
+    }
+
+    function recordKey(name) {
+      recording = name;
+      renderKeys();
+    }
+
+    function cancelRecording() {
+      if (!recording) return;
+      recording = "";
+      renderKeys();
+    }
+
+    function adoptOne(key, errorKey, shownKey, asked, returned, error, fromKeys) {
+      if (!fromKeys && state[shownKey]) return;
+      if (fromKeys && error && returned && returned !== asked) {
+        state[shownKey] = asked;
+        state[key] = returned;
+        state[errorKey] = error;
+        return;
+      }
+      state[shownKey] = "";
+      state[key] = returned || asked;
+      state[errorKey] = error;
+    }
+
+    function adoptHotkeys(value, askedSelect, askedShot, fromKeys) {
+      if (!value) return;
+      adoptOne("hotkey", "hotkeyError", "hotkeyShown", askedSelect, value.hotkey, value.hotkeyError || "", fromKeys);
+      adoptOne("shotHotkey", "shotHotkeyError", "shotHotkeyShown", askedShot, value.shotHotkey, value.shotHotkeyError || "", fromKeys);
+      renderKeys();
+    }
+
+    function pushSave(fromKeys) {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (bridge && typeof bridge.save === "function") {
+        const sentSelect = state.hotkey;
+        const sentShot = state.shotHotkey;
+        const payload = JSON.parse(JSON.stringify(state));
+        delete payload.hotkeyShown;
+        delete payload.shotHotkeyShown;
+        delete payload.hotkeyError;
+        delete payload.shotHotkeyError;
+        const result = bridge.save(payload);
+        if (result && typeof result.then === "function") {
+          result.then(function (value) {
+            adoptHotkeys(value, sentSelect, sentShot, !!fromKeys);
+          });
+        }
+      }
+    }
+
+    let pendingHotkeys = null;
+
+    function applyHotkeys(next) {
+      if (!next) return;
+      pendingHotkeys = next;
+      if (!state.hotkeyShown && next.hotkey === state.hotkey && Object.prototype.hasOwnProperty.call(next, "hotkeyError")) {
+        state.hotkeyError = next.hotkeyError || "";
+      }
+      if (!state.shotHotkeyShown && next.shotHotkey === state.shotHotkey && Object.prototype.hasOwnProperty.call(next, "shotHotkeyError")) {
+        state.shotHotkeyError = next.shotHotkeyError || "";
+      }
+      renderKeys();
+    }
+
+    function paintField(line, spec) {
+      const field = line.querySelector(".value");
+      const enabled = line.querySelector(".switch").getAttribute("aria-checked") === "true";
+      const invalid = enabled && coerce(spec, field.value) === null;
+      line.classList.toggle("is-off", !enabled);
+      line.classList.toggle("is-invalid", invalid);
+      const visual = field;
+      if (invalid) visual.setAttribute("aria-invalid", "true");
+      else visual.removeAttribute("aria-invalid");
+      line.querySelector(".tip").textContent = invalid
+        ? (spec.kind === "number" ? "请输入有效数字。" : "请输入思考强度。") + spec.hint
+        : spec.hint;
+    }
+
+    function readControls(debounce) {
+      state.model = document.getElementById("model").value;
+      state.endpoint = document.getElementById("endpoint").value;
+      state.apiKey = document.getElementById("api-key").value;
+      state.source = document.getElementById("source").value;
+      state.target = document.getElementById("target").value;
+      SPECS.forEach((spec) => {
+        const line = document.querySelector('[data-key="' + spec.key + '"]');
+        state.fields[spec.key] = {
+          enabled: line.querySelector(".switch").getAttribute("aria-checked") === "true",
+          value: line.querySelector(".value").value
+        };
+        paintField(line, spec);
+      });
+      renderCode();
+      clearTimeout(saveTimer);
+      if (debounce) saveTimer = setTimeout(pushSave, 180);
+      else pushSave();
+    }
+
+
+    let openMenu = null;
+
+    let menuAnchor = null;
+
+    function closeMenu() {
+      if (!openMenu) return;
+      if (menuAnchor) {
+        menuAnchor.setAttribute("aria-expanded", "false");
+        if (menuAnchor._comboInput) menuAnchor._comboInput.setAttribute("aria-expanded", "false");
+      }
+      openMenu.hidden = true;
+      openMenu._below = null;
+      openMenu._aligned = false;
+      openMenu = null;
+      menuAnchor = null;
+    }
+
+    function mountMenu(select) {
+      let host = select.parentElement;
+      if (!host.classList.contains("choice")) {
+        host = document.createElement("div");
+        host.className = "choice";
+        select.replaceWith(host);
+        host.append(select);
+      }
+      select.classList.add("native-select");
+      select.tabIndex = -1;
+      select.setAttribute("aria-hidden", "true");
+      let button = host.querySelector(".menu-btn");
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "menu-btn";
+        button.setAttribute("aria-haspopup", "listbox");
+        button.setAttribute("aria-expanded", "false");
+        const label = document.querySelector('label[for="' + select.id + '"]');
+        button.setAttribute("aria-label", label ? label.textContent : select.closest(".line").querySelector(".name").firstChild.textContent);
+        button.innerHTML = '<span class="menu-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.6 6.2 8 9.7 11.4 6.2"/></svg>';
+        host.append(button);
+        bindMenu(select, button);
+      }
+      const selected = select.selectedOptions[0];
+      button.querySelector(".menu-label").textContent = selected ? selected.textContent : "";
+    }
+
+    function bindMenu(select, button) {
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pop = ensurePop(select, button);
+        if (openMenu === pop) {
+          closeMenu();
+          return;
+        }
+        closeMenu();
+        menuAnchor = button;
+        pop._aligned = false;
+        placeMenu(pop, button);
+        pop.hidden = false;
+        openMenu = pop;
+        button.setAttribute("aria-expanded", "true");
+        if (button._comboInput) button._comboInput.setAttribute("aria-expanded", "true");
+      });
+      button.addEventListener("keydown", function (event) {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        if (openMenu !== button._pop || !openMenu) button.click();
+        const items = Array.from(openMenu.querySelectorAll(".menu-opt"));
+        const selected = openMenu.querySelector(".is-on");
+        const item = event.key === "Home" ? items[0] : event.key === "End" ? items[items.length - 1] : selected || (event.key === "ArrowUp" ? items[items.length - 1] : items[0]);
+        if (item) item.focus({ preventScroll: true });
+      });
+    }
+
+    function mountCombo(input, spec) {
+      const host = document.createElement("div");
+      host.className = "choice combo";
+      input.replaceWith(host);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "menu-btn";
+      button.setAttribute("aria-label", "选择" + spec.label);
+      button.setAttribute("aria-haspopup", "listbox");
+      button.setAttribute("aria-expanded", "false");
+      button.setAttribute("aria-controls", "menu-" + input.id);
+      button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.6 6.2 8 9.7 11.4 6.2"/></svg>';
+      button._comboInput = input;
+      input._presets = spec.options.map(value => ({ value, textContent: value }));
+      input.setAttribute("role", "combobox");
+      input.setAttribute("aria-autocomplete", "none");
+      input.setAttribute("aria-haspopup", "listbox");
+      input.setAttribute("aria-expanded", "false");
+      input.setAttribute("aria-controls", "menu-" + input.id);
+      input.autocomplete = "off";
+      host.append(input, button);
+      bindMenu(input, button);
+      input.addEventListener("keydown", function (event) {
+        if (!["ArrowDown", "ArrowUp"].includes(event.key) || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        event.preventDefault();
+        button.dispatchEvent(new KeyboardEvent("keydown", { key: event.key, bubbles: true, cancelable: true }));
+      });
+      input.addEventListener("input", closeMenu);
+    }
+
+    function ensurePop(select, button) {
+      let pop = button._pop;
+      if (!pop) {
+        pop = document.createElement("div");
+        pop.className = "menu-pop";
+        pop.hidden = true;
+        pop.setAttribute("role", "listbox");
+        pop.id = "menu-" + select.id;
+        pop.setAttribute("aria-label", button.getAttribute("aria-label"));
+        document.body.append(pop);
+        pop.addEventListener("mousedown", function (event) { event.stopPropagation(); });
+        pop.addEventListener("click", function (event) { event.stopPropagation(); });
+        if (window.intextScroll) window.intextScroll.mount(pop, { inset: 3, size: 3, endInset: 8, layer: 60 });
+        button._pop = pop;
+      }
+      pop.replaceChildren();
+      const value = select.value.trim();
+      Array.from(select.options || select._presets).forEach(function (option) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "menu-opt" + (option.value === value ? " is-on" : "");
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", option.value === value ? "true" : "false");
+        item.tabIndex = -1;
+        const mark = document.createElement("span");
+        mark.className = "menu-mark";
+        if (option.value === value) {
+          mark.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 8.2 6.4 11 12.4 4.8"/></svg>';
+        }
+        const label = document.createElement("span");
+        label.textContent = option.textContent;
+        item.append(mark, label);
+        item.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          if (select.tagName === "SELECT") mountMenu(select);
+          closeMenu();
+          (button._comboInput || button).focus({ preventScroll: true });
+        });
+        item.addEventListener("keydown", function (event) {
+          const items = Array.from(pop.querySelectorAll(".menu-opt"));
+          let next;
+          if (event.key === "ArrowDown") next = items[(items.indexOf(item) + 1) % items.length];
+          if (event.key === "ArrowUp") next = items[(items.indexOf(item) + items.length - 1) % items.length];
+          if (event.key === "Home") next = items[0];
+          if (event.key === "End") next = items[items.length - 1];
+          if (next) {
+            event.preventDefault();
+            next.focus({ preventScroll: true });
+            next.scrollIntoView({ block: "nearest" });
+          }
+          if (event.key === "Tab") closeMenu();
+        });
+        pop.append(item);
+      });
+      return pop;
+    }
+
+    function placeMenu(pop, button) {
+      const rect = (button._comboInput ? button.parentElement : button).getBoundingClientRect();
+      const gap = 4;
+      const margin = 8;
+      const below = Math.max(0, window.innerHeight - rect.bottom - gap - margin);
+      const above = Math.max(0, rect.top - gap - margin);
+      let openBelow = pop._below;
+      if (openBelow == null) openBelow = below >= above;
+      if (openBelow && below < 88 && above > below) openBelow = false;
+      else if (!openBelow && above < 88 && below > above) openBelow = true;
+      pop._below = openBelow;
+      const room = Math.max(0, Math.floor(openBelow ? below : above));
+      pop.style.width = rect.width + "px";
+      pop.style.minWidth = "0";
+      pop.style.maxHeight = room + "px";
+      pop.style.left = rect.left + "px";
+      pop.hidden = false;
+      const height = Math.min(pop.scrollHeight, room);
+      pop.style.top = (openBelow ? rect.bottom + gap : Math.max(margin, rect.top - gap - height)) + "px";
+      if (!pop._aligned) {
+        const current = pop.querySelector(".is-on");
+        if (current) {
+          const top = current.offsetTop;
+          const bottom = top + current.offsetHeight;
+          if (top < pop.scrollTop) pop.scrollTop = Math.max(0, top - 4);
+          else if (bottom > pop.scrollTop + pop.clientHeight) pop.scrollTop = bottom - pop.clientHeight + 4;
+        }
+        pop._aligned = true;
+      }
+    }
+
+    function fillSelect(id, options, selected) {
+      const select = document.getElementById(id);
+      select.replaceChildren();
+      options.forEach((option) => {
+        const node = document.createElement("option");
+        node.value = option;
+        node.textContent = languageLabel(option);
+        select.append(node);
+      });
+      select.value = options.indexOf(selected) === -1 ? options[0] : selected;
+      mountMenu(select);
+    }
+
+    function buildFields() {
+      const root = document.getElementById("fields");
+      SPECS.forEach((spec) => {
+        const line = document.createElement("div");
+        line.className = "line is-off";
+        line.dataset.key = spec.key;
+        const name = document.createElement("div");
+        name.className = "name";
+        name.append(document.createTextNode(spec.label));
+        const help = document.createElement("button");
+        help.type = "button";
+        help.className = "help";
+        help.setAttribute("aria-label", spec.label + "说明");
+        help.append(document.createTextNode("?"));
+        const tip = document.createElement("span");
+        tip.className = "tip";
+        tip.textContent = spec.hint;
+        help.append(tip);
+        name.append(help);
+        const input = document.createElement("input");
+        input.className = "value";
+        input.id = "field-" + spec.key;
+        input.setAttribute("aria-label", spec.label);
+        input.type = "text";
+        if (spec.kind === "number") input.inputMode = "decimal";
+        input.spellcheck = false;
+        input.value = state.fields[spec.key].value;
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "switch";
+        toggle.setAttribute("role", "switch");
+        toggle.setAttribute("aria-checked", "false");
+        toggle.setAttribute("aria-label", "启用" + spec.label);
+        toggle.addEventListener("click", function () {
+          const on = toggle.getAttribute("aria-checked") !== "true";
+          toggle.setAttribute("aria-checked", on ? "true" : "false");
+          readControls(false);
+        });
+        line.append(name, input, toggle);
+        if (spec.kind === "combo") mountCombo(input, spec);
+        root.append(line);
+      });
+    }
+
+    function apply(next) {
+      if (!next) return;
+      state.endpoint = next.endpoint || state.endpoint;
+      state.apiKey = next.apiKey || next.api_key || "";
+      state.model = next.model || "";
+      state.source = next.source || "auto";
+      state.target = next.target || "zh";
+      state.hotkey = next.hotkey || state.hotkey;
+      state.shotHotkey = next.shotHotkey || next.shot_hotkey || state.shotHotkey;
+      if (Object.prototype.hasOwnProperty.call(next, "hotkeyError")) state.hotkeyError = next.hotkeyError || "";
+      if (Object.prototype.hasOwnProperty.call(next, "shotHotkeyError")) state.shotHotkeyError = next.shotHotkeyError || "";
+      state.hotkeyShown = "";
+      state.shotHotkeyShown = "";
+      if (pendingHotkeys) applyHotkeys(pendingHotkeys);
+      const incoming = next.fields || {};
+      SPECS.forEach((spec) => {
+        const item = incoming[spec.key] || {};
+        state.fields[spec.key] = {
+          enabled: !!item.enabled,
+          value: item.value == null ? spec.value : String(item.value)
+        };
+      });
+      document.getElementById("model").value = state.model;
+      document.getElementById("endpoint").value = state.endpoint;
+      document.getElementById("api-key").value = state.apiKey;
+      fillSelect("source", SOURCE_OPTIONS, state.source);
+      fillSelect("target", TARGET_OPTIONS, state.target);
+      state.source = document.getElementById("source").value;
+      state.target = document.getElementById("target").value;
+      renderKeys();
+      SPECS.forEach((spec) => {
+        const line = document.querySelector('[data-key="' + spec.key + '"]');
+        const field = line.querySelector(".value");
+        field.value = state.fields[spec.key].value;
+        line.querySelector(".switch").setAttribute("aria-checked", state.fields[spec.key].enabled ? "true" : "false");
+        paintField(line, spec);
+      });
+      renderCode();
+    }
+
+    function api(name) {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (bridge && typeof bridge[name] === "function") return bridge[name]();
+    }
+
+    fillSelect("source", SOURCE_OPTIONS, state.source);
+    fillSelect("target", TARGET_OPTIONS, state.target);
+    document.getElementById("endpoint").value = state.endpoint;
+    renderKeys();
+    buildFields();
+    document.getElementById("sheet").addEventListener("submit", function (event) { event.preventDefault(); });
+    document.getElementById("sheet").addEventListener("input", function () { readControls(true); });
+    document.getElementById("sheet").addEventListener("change", function () { readControls(false); });
+    document.getElementById("stash").addEventListener("click", function () {
+      clearTimeout(saveTimer);
+      pushSave();
+      api("hide");
+    });
+    document.getElementById("sheet").addEventListener("scroll", function () {
+      const sheet = document.getElementById("sheet");
+      sheet.classList.toggle("is-scrolled", sheet.scrollTop > 1);
+      if (!openMenu || !menuAnchor) return;
+      const buttonRect = menuAnchor.getBoundingClientRect();
+      const sheetRect = sheet.getBoundingClientRect();
+      const headBottom = document.querySelector(".head").getBoundingClientRect().bottom;
+      if (buttonRect.top < headBottom || buttonRect.top >= sheetRect.bottom - 4) {
+        closeMenu();
+        return;
+      }
+      placeMenu(openMenu, menuAnchor);
+    }, { passive: true });
+    window.addEventListener("resize", function () {
+      if (openMenu && menuAnchor) placeMenu(openMenu, menuAnchor);
+    });
+    document.addEventListener("wheel", function (event) {
+      if (!openMenu || openMenu.hidden) return;
+      const rect = openMenu.getBoundingClientRect();
+      const over = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (!over) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const max = openMenu.scrollHeight - openMenu.clientHeight;
+      if (max <= 0) return;
+      const next = Math.max(0, Math.min(max, openMenu.scrollTop + (event.deltaY || 0)));
+      if (next !== openMenu.scrollTop) openMenu.scrollTop = next;
+    }, { capture: true, passive: false });
+    document.addEventListener("click", function () { closeMenu(); });
+    document.addEventListener("pointerdown", function (event) {
+      if (!recording) return;
+      if (event.target.closest("#hotkey-select, #hotkey-shot")) return;
+      cancelRecording();
+    });
+    window.addEventListener("blur", cancelRecording);
+    document.getElementById("hotkey-select").addEventListener("click", function () { recordKey("hotkey"); });
+    document.getElementById("hotkey-shot").addEventListener("click", function () { recordKey("shotHotkey"); });
+    document.addEventListener("keydown", function (event) {
+      if (recording) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          cancelRecording();
+          return;
+        }
+        if (["Control", "Alt", "Shift", "Meta"].indexOf(event.key) !== -1) return;
+        const parts = [];
+        if (event.ctrlKey) parts.push("ctrl");
+        if (event.altKey) parts.push("alt");
+        if (event.shiftKey) parts.push("shift");
+        if (event.metaKey) parts.push("win");
+        if (!parts.length) return;
+        let key = event.key.toLowerCase();
+        if (event.code && event.code.indexOf("Key") === 0) key = event.code.slice(3).toLowerCase();
+        if (event.code && event.code.indexOf("Digit") === 0) key = event.code.slice(5);
+        if (/^f([1-9]|1[0-2])$/i.test(event.key)) key = event.key.toLowerCase();
+        if (!/^([a-z0-9]|f(?:[1-9]|1[0-2]))$/.test(key)) {
+          const spec = parts.concat(key).join("+");
+          if (recording === "hotkey") {
+            state.hotkeyShown = spec;
+            state.hotkeyError = "无效";
+          } else {
+            state.shotHotkeyShown = spec;
+            state.shotHotkeyError = "无效";
+          }
+          recording = "";
+          renderKeys();
+          return;
+        }
+        parts.push(key);
+        const spec = parts.join("+");
+        const other = recording === "hotkey" ? (state.shotHotkeyShown || state.shotHotkey) : (state.hotkeyShown || state.hotkey);
+        if (spec === other) {
+          if (recording === "hotkey") {
+            state.hotkeyShown = spec;
+            state.hotkeyError = "重复";
+          } else {
+            state.shotHotkeyShown = spec;
+            state.shotHotkeyError = "重复";
+          }
+          recording = "";
+          renderKeys();
+          return;
+        }
+        state[recording] = spec;
+        if (recording === "hotkey") {
+          state.hotkeyShown = "";
+          state.hotkeyError = "";
+        } else {
+          state.shotHotkeyShown = "";
+          state.shotHotkeyError = "";
+        }
+        recording = "";
+        renderKeys();
+        pushSave(true);
+        return;
+      }
+      if (event.key === "Escape" && openMenu) {
+        const anchor = menuAnchor;
+        closeMenu();
+        if (anchor) anchor.focus({ preventScroll: true });
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Escape") {
+        clearTimeout(saveTimer);
+        pushSave();
+        api("hide");
+      }
+    });
+    function applyLanguages(next) {
+      state.source = next.source;
+      state.target = next.target;
+      fillSelect("source", SOURCE_OPTIONS, state.source);
+      fillSelect("target", TARGET_OPTIONS, state.target);
+      renderCode();
+    }
+    window.intextSettings = { apply: apply, hotkeys: applyHotkeys, languages: applyLanguages, body: requestBody };
+    renderCode();
+    if (window.intextScroll) {
+      window.intextScroll.mount(document.getElementById("sheet"), { inset: 4, size: 4, endInset: 18 });
+      window.intextScroll.mount(document.getElementById("live"), { inset: 4, size: 4, endInset: 8 });
+    }
+    ["n", "s", "e", "w", "nw", "ne", "sw", "se"].forEach(function (edge) {
+      const node = document.createElement("div");
+      node.className = "resize resize-" + edge;
+      node.addEventListener("mousedown", function (event) {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const cursors = { n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize", ne: "nesw-resize", sw: "nesw-resize", nw: "nwse-resize", se: "nwse-resize" };
+        document.documentElement.classList.add("is-resizing");
+        document.documentElement.style.cursor = cursors[edge];
+        const bridge = window.pywebview && window.pywebview.api;
+        if (bridge && bridge.begin_resize) bridge.begin_resize(edge);
+        function up() {
+          window.removeEventListener("mouseup", up);
+          window.removeEventListener("blur", up);
+          document.documentElement.classList.remove("is-resizing");
+          document.documentElement.style.cursor = "";
+          if (bridge && bridge.end_resize) bridge.end_resize();
+        }
+        window.addEventListener("mouseup", up);
+        window.addEventListener("blur", up);
+      });
+      node.addEventListener("wheel", function (event) {
+        const sheet = document.getElementById("sheet");
+        if (!sheet) return;
+        event.preventDefault();
+        sheet.scrollTop += event.deltaY || 0;
+        sheet.scrollLeft += event.deltaX || 0;
+      }, { passive: false });
+      document.body.appendChild(node);
+    });
+  </script>
+</body>
+</html>

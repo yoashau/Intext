@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>浮层 v1</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&family=Noto+Sans+SC:wght@400;500&display=swap">
+  <script src="https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f7f5f2;
+      background: light-dark(#f7f5f2, #0e0e0d);
+      font-family: Inter, "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .scene {
+      width: min(100%, 468px);
+      box-sizing: border-box;
+      padding: 36px 28px 28px;
+      background: #f4f0ea;
+      background: light-dark(#f4f0ea, #141312);
+    }
+    .page {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.65;
+      font-weight: 430;
+      color: rgba(28, 27, 25, 0.8);
+      color: light-dark(rgba(28, 27, 25, 0.8), rgba(245, 242, 236, 0.86));
+    }
+    .sel {
+      background: rgba(0, 122, 255, 0.2);
+      background: light-dark(rgba(0, 122, 255, 0.2), rgba(10, 132, 255, 0.4));
+      border-radius: 2px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .glass {
+      position: relative;
+      width: min(100%, 372px);
+      margin-top: 16px;
+      padding: 14px 16px 10px;
+      box-sizing: border-box;
+      border-radius: 22px;
+      color: #1d1d1f;
+      color: light-dark(#1d1d1f, #f5f5f7);
+      background-image: linear-gradient(180deg, rgba(255, 251, 247, 0.94), rgba(255, 251, 247, 0.78));
+      background-image: linear-gradient(
+        180deg,
+        light-dark(rgba(255, 251, 247, 0.94), rgba(46, 43, 40, 0.9)),
+        light-dark(rgba(255, 251, 247, 0.78), rgba(46, 43, 40, 0.7))
+      );
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.92),
+        inset 0 -1px 0 rgba(80, 54, 32, 0.06),
+        0 0 0 0.5px rgba(72, 48, 28, 0.08),
+        0 1px 1px rgba(72, 48, 28, 0.04),
+        0 16px 36px rgba(72, 48, 28, 0.1);
+      box-shadow:
+        inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.2)),
+        inset 0 -1px 0 light-dark(rgba(80, 54, 32, 0.06), rgba(0, 0, 0, 0.35)),
+        0 0 0 0.5px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08)),
+        0 1px 1px light-dark(rgba(72, 48, 28, 0.04), rgba(0, 0, 0, 0.3)),
+        0 16px 36px light-dark(rgba(72, 48, 28, 0.1), rgba(0, 0, 0, 0.42));
+    }
+    .glass::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 18px;
+      right: 18px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+      background: linear-gradient(90deg, transparent, light-dark(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.42)), transparent);
+      pointer-events: none;
+    }
+    .row, .foot, .actions { display: flex; flex-wrap: wrap; align-items: center; }
+    .row { gap: 2px 7px; min-height: 24px; }
+    .row .status { margin-left: auto; padding-left: 12px; }
+    .foot { width: 100%; margin-top: 12px; padding-top: 7px; gap: 2px 14px; }
+    .actions { gap: 2px; }
+    .lang, .status, .model, button {
+      font-size: 12.5px;
+      line-height: 1.35;
+      font-weight: 450;
+      color: rgba(72, 68, 64, 0.72);
+      color: light-dark(rgba(72, 68, 64, 0.72), rgba(235, 235, 245, 0.68));
+    }
+    .status, .model {
+      font-size: 12px;
+      font-weight: 430;
+      color: rgba(72, 68, 64, 0.48);
+      color: light-dark(rgba(72, 68, 64, 0.48), rgba(235, 235, 245, 0.46));
+    }
+    .model { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .result, .source { margin: 0; overflow-wrap: anywhere; }
+    .result {
+      margin-top: 13px;
+      font-size: 18px;
+      line-height: 1.5;
+      font-weight: 500;
+      text-wrap: balance;
+      color: #1c1b19;
+      color: light-dark(#1c1b19, #f6f3ee);
+    }
+    .result[lang="en"] { letter-spacing: -0.02em; }
+    .source {
+      margin-top: 6px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      font-weight: 400;
+      color: rgba(72, 68, 64, 0.56);
+      color: light-dark(rgba(72, 68, 64, 0.56), rgba(235, 235, 245, 0.54));
+    }
+    .source[lang="en"] { letter-spacing: -0.011em; }
+    button {
+      font: inherit;
+      background: transparent;
+      border: 0;
+      margin: 0;
+      color: inherit;
+    }
+    .swap, .iconbtn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 0;
+    }
+    .swap {
+      width: 22px;
+      color: rgba(48, 46, 43, 0.62);
+      color: light-dark(rgba(48, 46, 43, 0.62), rgba(245, 242, 236, 0.68));
+    }
+    .iconbtn {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      color: rgba(48, 46, 43, 0.82);
+      color: light-dark(rgba(48, 46, 43, 0.82), rgba(245, 242, 236, 0.86));
+    }
+    .swap svg, .iconbtn svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    #pin svg { transform: translateY(-0.5px); }
+    .iconbtn[aria-pressed="true"], .iconbtn.is-done {
+      color: #1c1b19;
+      color: light-dark(#1c1b19, #f6f3ee);
+    }
+    @media (hover: hover) {
+      .iconbtn:hover, .swap:hover { color: #1c1b19; color: light-dark(#1c1b19, #ffffff); }
+    }
+    button:active { opacity: 0.55; }
+  </style>
+</head>
+<body>
+  <div class="scene">
+    <p class="page" lang="en">Some clients add extra fields. <span class="sel">Please leave this model's request body unchanged.</span></p>
+    <div class="glass" role="region" aria-label="翻译">
+      <div class="row">
+        <span class="lang" id="from">英语</span>
+        <button type="button" class="swap" id="swap" aria-label="对调语言"><i data-lucide="arrow-left-right" aria-hidden="true"></i></button>
+        <span class="lang" id="to">简体中文</span>
+        <span class="status" id="status">已缓存</span>
+      </div>
+      <p class="result" id="result" lang="zh">请保持这个模型的请求体原样。</p>
+      <p class="source" id="source" lang="en">Please leave this model's request body unchanged.</p>
+      <div class="foot">
+        <div class="actions">
+          <button type="button" class="iconbtn" id="retry" aria-label="再译"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+          <button type="button" class="iconbtn" id="copy" aria-label="复制"><i data-lucide="copy" aria-hidden="true"></i></button>
+          <button type="button" class="iconbtn" id="pin" aria-label="固定" aria-pressed="false"><i data-lucide="pin" aria-hidden="true"></i></button>
+        </div>
+        <span class="model">gpt 6.1 sol</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const en = "Please leave this model's request body unchanged.";
+    const zh = "请保持这个模型的请求体原样。";
+    let swapped = false;
+    let cached = true;
+    let pinned = false;
+    const from = document.getElementById("from");
+    const to = document.getElementById("to");
+    const result = document.getElementById("result");
+    const source = document.getElementById("source");
+    const status = document.getElementById("status");
+    const retry = document.getElementById("retry");
+    const pin = document.getElementById("pin");
+    function render() {
+      from.textContent = swapped ? "简体中文" : "英语";
+      to.textContent = swapped ? "英语" : "简体中文";
+      result.textContent = swapped ? en : zh;
+      result.lang = swapped ? "en" : "zh";
+      source.textContent = swapped ? zh : en;
+      source.lang = swapped ? "zh" : "en";
+      status.textContent = cached ? "已缓存" : "未缓存";
+      retry.setAttribute("aria-label", cached ? "再译" : "用缓存");
+      pin.setAttribute("aria-label", pinned ? "已固定" : "固定");
+      pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+    }
+    document.getElementById("swap").addEventListener("click", function () { swapped = !swapped; render(); });
+    retry.addEventListener("click", function () { cached = !cached; render(); });
+    pin.addEventListener("click", function () { pinned = !pinned; render(); });
+    document.getElementById("copy").addEventListener("click", function (event) {
+      const button = event.currentTarget;
+      if (navigator.clipboard) navigator.clipboard.writeText(result.textContent).catch(function () {});
+      button.classList.add("is-done");
+      button.setAttribute("aria-label", "已复制");
+      setTimeout(function () {
+        button.classList.remove("is-done");
+        button.setAttribute("aria-label", "复制");
+      }, 900);
+    });
+    render();
+    if (window.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
+  </script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+/* Shared typography, palette and controls for all WebView surfaces. */
+:root {
+  --font-interface: "Segoe UI Variable Text", "Microsoft YaHei UI", "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --text-primary: light-dark(#26231f, #f3eee7);
+  --text-secondary: light-dark(#706b65, #bdb6ae);
+  --text-tertiary: light-dark(#756f68, #b1aaa2);
+  --focus-ring: light-dark(#9a713b, #d0ae7c);
+  --control-hover: light-dark(rgba(72, 48, 28, 0.08), rgba(243, 238, 231, 0.09));
+  --control-pressed: light-dark(rgba(72, 48, 28, 0.16), rgba(243, 238, 231, 0.16));
+  --control-selected: light-dark(rgba(164, 122, 67, 0.14), rgba(208, 174, 124, 0.18));
+  --enabled-fill: light-dark(#6b8772, #71937b);
+  --success-ink: light-dark(#4c7557, #a8c8b0);
+  --warning-ink: light-dark(#92553f, #dcb69f);
+  --rule-color: light-dark(rgba(65, 56, 45, 0.11), rgba(243, 238, 231, 0.1));
+  --scroll-thumb: light-dark(rgba(76, 66, 54, 0.25), rgba(235, 225, 210, 0.28));
+  --scroll-thumb-hot: light-dark(rgba(76, 66, 54, 0.44), rgba(235, 225, 210, 0.46));
+  --field-hover-border: light-dark(rgba(72, 48, 28, 0.18), rgba(255, 255, 255, 0.18));
+}
+
+::selection {
+  background: light-dark(rgba(99, 142, 180, 0.22), rgba(123, 164, 199, 0.3));
+  color: inherit;
+}
+
+:root :focus { outline: none; }
+:root :focus-visible {
+  outline: 1.5px solid var(--focus-ring);
+  outline-offset: 0;
+}
+
+.help { font-size: 12px; border-radius: 5px; }
+.help:hover:enabled { background: var(--control-hover); color: var(--text-primary); }
+.help:focus-visible { color: var(--text-primary); }
+.help:active:enabled { background: var(--control-pressed); }
+.menu-mark { display: inline-flex; align-items: center; width: 14px; height: 14px; flex: 0 0 14px; }
+.menu-mark svg {
+  width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+/* The language and request dropdowns share one surface and selection model. */
+.menu-pop, .language-menu {
+  border-radius: 12px;
+  background: light-dark(rgba(255, 251, 247, 0.96), rgba(44, 42, 40, 0.96));
+  box-shadow:
+    inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08)),
+    0 12px 32px light-dark(rgba(72, 48, 28, 0.16), rgba(0, 0, 0, 0.42));
+  backdrop-filter: blur(18px);
+}
+.menu-opt, .language-option {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--text-primary);
+}
+.menu-opt:hover, .menu-opt.is-on,
+.language-option:hover, .language-option[aria-selected="true"] { background: var(--control-hover); }
+.menu-opt:focus-visible, .language-option:focus-visible { background: var(--control-selected); }
+.menu-opt:active, .language-option:active { background: var(--control-pressed); }
+
+.tip { display: none; }
+.tooltip[hidden] { display: none; }
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: light-dark(#fffaf6, #2c2a28);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 430;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 0 8px 22px light-dark(rgba(72, 48, 28, 0.12), rgba(0, 0, 0, 0.38));
+  pointer-events: none;
+}
+.tooltip.is-scrollable {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  scrollbar-width: auto;
+}
+.tooltip.is-scrollable::-webkit-scrollbar { display: block; width: 3px; height: 0; background: transparent; }
+.tooltip.is-scrollable::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scroll-thumb); }
+.tooltip.is-scrollable::-webkit-scrollbar-button { display: none; }
+
+.window-dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.window-dot::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: light-dark(#cba35e, #d7b577);
+  box-shadow: inset 0 0 0 0.5px light-dark(rgba(110, 73, 17, 0.18), rgba(255, 239, 200, 0.12));
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.window-dot:hover::before { filter: brightness(0.92); }
+:root .window-dot:focus-visible { outline: none; }
+.window-dot:focus-visible::before { filter: brightness(0.8); }
+.window-dot:active::before { transform: scale(0.88); filter: brightness(0.86); }
+
+@media (prefers-reduced-motion: reduce) {
+  .window-dot::before { transition: none; }
+}

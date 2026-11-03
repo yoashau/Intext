@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intext</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { scrollbar-width: none; }
+    *::-webkit-scrollbar { width: 0; height: 0; display: none; background: transparent; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      background: transparent;
+      font-family: var(--font-interface);
+      -webkit-font-smoothing: antialiased;
+    }
+    .stage {
+      box-sizing: border-box;
+      height: 100%;
+      display: flex;
+      align-items: flex-start;
+      overflow: hidden;
+      padding: 22px 22px 28px 22px;
+    }
+    .glass {
+      /* Keep small text legible even over the opposite desktop brightness. */
+      --text-secondary: light-dark(#5f5a54, #c8c0b6);
+      --text-tertiary: light-dark(#655f59, #beb6ac);
+      position: relative;
+      width: min(100%, 372px);
+      max-height: 100%;
+      display: flex;
+      flex-direction: column;
+      scrollbar-width: none;
+      box-sizing: border-box;
+      padding: 14px 16px 14px;
+      border-radius: 22px;
+      color: #1d1d1f;
+      color: var(--text-primary);
+      background-image: linear-gradient(180deg, rgba(255, 251, 247, 0.94), rgba(255, 251, 247, 0.9));
+      background-image: linear-gradient(
+        180deg,
+        light-dark(rgba(255, 251, 247, 0.94), rgba(46, 43, 40, 0.94)),
+        light-dark(rgba(255, 251, 247, 0.9), rgba(46, 43, 40, 0.92))
+      );
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      box-shadow:
+        inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.2)),
+        inset 0 -1px 0 light-dark(rgba(80, 54, 32, 0.06), rgba(0, 0, 0, 0.35)),
+        0 0 0 0.5px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08)),
+        0 16px 36px light-dark(rgba(72, 48, 28, 0.12), rgba(0, 0, 0, 0.42));
+    }
+    .glass::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 18px;
+      right: 18px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, light-dark(rgba(255,255,255,0.95), rgba(255,255,255,0.42)), transparent);
+      pointer-events: none;
+    }
+    .glass.is-in { animation: intext-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    @keyframes intext-in {
+      from { opacity: 0; transform: translateY(8px) scale(0.985); }
+      to { opacity: 1; transform: none; }
+    }
+    .row, .foot, .actions, .status-line { display: flex; align-items: center; }
+    .row { gap: 7px; min-height: 26px; flex: 0 0 auto; }
+    .status-line { margin-left: auto; gap: 2px; min-width: 0; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .foot { margin-top: 12px; gap: 8px; flex: 0 0 auto; }
+    .actions { gap: 4px; flex-shrink: 0; }
+    .content { min-height: 0; overflow: auto; margin-top: 13px; }
+    .lang, .swap, .help { flex-shrink: 0; }
+    .lang { border-radius: 6px; padding: 3px 4px; margin: 0 -4px; }
+    .lang:hover { color: var(--text-primary); }
+    #input {
+      box-sizing: border-box; display: block; width: 100%; height: 120px; margin: 0;
+      padding: 8px 10px; resize: none; border: 0;
+      background: light-dark(rgba(72, 48, 28, 0.035), rgba(255, 255, 255, 0.045));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.07), rgba(255, 255, 255, 0.08));
+      color: inherit; font: inherit; font-size: 16px; line-height: 1.55;
+      user-select: text; -webkit-user-select: text;
+    }
+    #input::placeholder { color: var(--text-tertiary); }
+    [hidden] { display: none !important; }
+    .iconbtn.submit { color: var(--text-primary); width: auto; padding: 0 10px; flex-shrink: 0; white-space: nowrap; font-size: 13px; background: var(--control-selected); }
+    .language-menu {
+      position: fixed; z-index: 60; box-sizing: border-box; width: 142px;
+      padding: 5px; overflow: auto;
+    }
+    .language-option {
+      display: flex; align-items: center; gap: 6px; box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px;
+      border-radius: 7px; text-align: left;
+    }
+    .lang, .model, button {
+      font: inherit;
+      font-size: 14px;
+      line-height: 1.35;
+      font-weight: 450;
+      color: var(--text-secondary);
+    }
+    .model {
+      font-size: 13px;
+      font-weight: 480;
+      color: var(--text-tertiary);
+    }
+    .model { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; border-radius: 4px; }
+    .result, .source { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .result {
+      min-height: 1.5em;
+      font-size: 20px;
+      line-height: 1.5;
+      font-weight: 450;
+      color: var(--text-primary);
+    }
+    .result.is-settle { animation: intext-fade 160ms cubic-bezier(0.22, 1, 0.36, 1); }
+    .glass[data-result-state="progress"] .result, .glass[data-result-state="error"] .result {
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+    }
+    .glass[data-result-state="error"] .result { color: var(--warning-ink); }
+    @keyframes intext-fade { from { opacity: 0.35; } to { opacity: 1; } }
+    .source {
+      margin-top: 8px;
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--text-tertiary);
+    }
+    button, img, svg { -webkit-user-drag: none; }
+    .result, .source { user-select: text; -webkit-user-select: text; cursor: text; }
+    button { background: transparent; border: 0; margin: 0; padding: 0; color: inherit; }
+    .iconbtn, .swap, .help {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .swap { width: 26px; height: 26px; color: var(--text-secondary); }
+    .iconbtn {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      color: var(--text-secondary);
+    }
+    .iconbtn svg, .swap svg {
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .swap svg { width: 16px; height: 16px; }
+    .iconbtn svg { width: 18px; height: 18px; }
+    .iconbtn:enabled:is(:hover, :focus-visible):not(.is-copied),
+    .swap:enabled:is(:hover, :focus-visible) { color: var(--text-primary); }
+    .iconbtn.is-copied { color: var(--success-ink); }
+    .iconbtn:hover:enabled, .swap:hover:enabled, .lang:hover:enabled { background: var(--control-hover); }
+    .model { padding: 4px 6px; margin-right: -6px; border-radius: 6px; }
+    .model:hover { background: var(--control-hover); color: var(--text-primary); }
+    .model:active { background: var(--control-pressed); color: var(--text-primary); }
+    .lang[aria-expanded="true"], .swap[aria-expanded="true"] { background: var(--control-hover); }
+    .swap { border-radius: 7px; }
+    button:disabled { opacity: 0.35; }
+    #pin[aria-pressed="true"] svg .pin-head { fill: currentColor; }
+    .copy-check { display: none !important; }
+    .is-copied .copy-check { display: block !important; }
+    .is-copied .copy-pages { display: none; }
+    #retry.is-busy svg { animation: retry-turn 900ms linear infinite; }
+    @keyframes retry-turn { to { transform: rotate(360deg); } }
+    .content { border-radius: 5px; }
+    #input { border-radius: 10px; }
+    :root #input:focus-visible { outline-offset: -1.5px; }
+    .help[hidden] { display: none !important; }
+    .help {
+      position: relative;
+      width: 22px;
+      height: 22px;
+      font-size: 12px;
+      font-weight: 560;
+      color: var(--text-tertiary);
+    }
+    .iconbtn, .swap, .lang { transition: background-color 120ms ease, color 120ms ease; }
+    .iconbtn:active:enabled, .swap:active:enabled, .lang:active:enabled {
+      background: var(--control-pressed);
+    }
+    .iconbtn.is-clicked:enabled, .swap.is-clicked:enabled, .lang.is-clicked:enabled {
+      background: var(--control-pressed);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .glass.is-in, .result.is-settle, #retry.is-busy svg { animation: none; }
+      .iconbtn, .swap, .lang { transition: none; }
+    }
+  </style>
+  <link rel="stylesheet" href="controls.css">
+</head>
+<body>
+  <div class="stage">
+    <div class="glass" id="panel" role="region" aria-label="翻译">
+      <div class="row">
+        <button type="button" class="lang" id="from" aria-label="原文语言" aria-haspopup="listbox" aria-expanded="false">英语</button>
+        <button type="button" class="swap" id="swap" aria-label="对调语言" data-tooltip="对调语言">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.2h12M12.2 2.9l3.3 3.3-3.3 3.3M16.5 13.8h-12M7.8 10.5l-3.3 3.3 3.3 3.3"/></svg>
+        </button>
+        <button type="button" class="lang" id="to" aria-label="译文语言" aria-haspopup="listbox" aria-expanded="false">简体中文</button>
+        <span class="status-line">
+          <button type="button" class="help" id="status-help" hidden aria-label="说明"><span aria-hidden="true">?</span><span class="tip" id="status-tip"></span></button>
+          <button type="button" class="window-dot" id="dismiss" aria-label="关闭翻译" data-tooltip="关闭翻译"></button>
+        </span>
+      </div>
+      <div class="content" id="content" tabindex="0" role="region" aria-label="原文与译文">
+        <textarea id="input" hidden aria-label="待翻译文字" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
+        <p class="result" id="result" lang="zh"></p>
+        <p class="source" id="source" lang="en"></p>
+      </div>
+      <div class="foot">
+        <div class="actions">
+          <button type="button" class="iconbtn submit" id="submit" hidden data-tooltip="Ctrl+Enter">翻译</button>
+          <button type="button" class="iconbtn" id="retry" aria-label="再译" data-tooltip="再译">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6.5 6.5 0 1 0-.4 5M16 4.5V8h-3.5"/></svg>
+          </button>
+          <button type="button" class="iconbtn" id="copy" aria-label="复制" data-tooltip="复制">
+            <svg class="copy-pages" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M5 13a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2"/></svg>
+            <svg class="copy-check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10 3.7 3.7 7.3-7.4"/></svg>
+          </button>
+          <button type="button" class="iconbtn" id="pin" aria-label="固定" data-tooltip="固定" aria-pressed="false">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path class="pin-head" d="M7 3h6l-1 4.5 2 2.5v2H6v-2l2-2.5Z"/><path d="M10 12v5"/></svg>
+          </button>
+        </div>
+        <button type="button" class="model" id="model" aria-label="请求设置" data-tooltip="请求设置"></button>
+      </div>
+    </div>
+  </div>
+  <div class="language-menu" id="languages" role="listbox" hidden></div>
+  <span class="visually-hidden" id="announcement" role="status" aria-live="polite"></span>
+  <script src="scroll.js"></script>
+  <script src="controls.js"></script>
+  <script>
+    let pinned = false;
+    let appliedSeq = -1;
+    let copyTimer = 0;
+    const panel = document.getElementById("panel");
+    const result = document.getElementById("result");
+    const help = document.getElementById("status-help");
+    const tip = document.getElementById("status-tip");
+    const content = document.getElementById("content");
+    const input = document.getElementById("input");
+    const menu = document.getElementById("languages");
+    const copyButton = document.getElementById("copy");
+    const retryButton = document.getElementById("retry");
+    const pinButton = document.getElementById("pin");
+    const announcement = document.getElementById("announcement");
+    const languages = { auto: "自动", zh: "简体中文", en: "英语", ja: "日语", ko: "韩语", fr: "法语", de: "德语", es: "西班牙语", ru: "俄语" };
+    let sourceCode = "auto", targetCode = "zh", inputMode = false;
+    let menuAnchor = null;
+
+    function closeLanguages() {
+      menu.hidden = true;
+      if (menuAnchor) menuAnchor.setAttribute("aria-expanded", "false");
+      menuAnchor = null;
+    }
+
+    function chooseLanguage(kind, anchor) {
+      if (!menu.hidden && menuAnchor === anchor) { closeLanguages(); return; }
+      closeLanguages();
+      menuAnchor = anchor;
+      anchor.setAttribute("aria-expanded", "true");
+      menu.setAttribute("aria-label", kind === "reverse" ? "指定原文语言以对调" : kind === "source" ? "原文语言" : "译文语言");
+      menu.replaceChildren();
+      Object.entries(languages).forEach(([code, label]) => {
+        if (code === "auto" && kind !== "source") return;
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "language-option";
+        const mark = document.createElement("span");
+        mark.className = "menu-mark";
+        if (code === (kind === "target" ? targetCode : sourceCode)) {
+          mark.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 8.2 6.4 11 12.4 4.8"/></svg>';
+        }
+        item.append(mark, document.createTextNode(label));
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", code === (kind === "target" ? targetCode : sourceCode) ? "true" : "false");
+        item.addEventListener("click", function () {
+          closeLanguages();
+          if (kind === "reverse") api("swap", code);
+          else api("set_languages", { source: kind === "source" ? code : sourceCode, target: kind === "target" ? code : targetCode });
+          anchor.focus({ preventScroll: true });
+        });
+        item.addEventListener("keydown", function (event) {
+          const items = Array.from(menu.children);
+          const index = items.indexOf(item);
+          let next;
+          if (event.key === "ArrowDown") next = items[(index + 1) % items.length];
+          if (event.key === "ArrowUp") next = items[(index + items.length - 1) % items.length];
+          if (event.key === "Home") next = items[0];
+          if (event.key === "End") next = items[items.length - 1];
+          if (next) { event.preventDefault(); next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest" }); }
+          if (event.key === "Tab") closeLanguages();
+        });
+        menu.append(item);
+      });
+      const rect = anchor.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(rect.left, innerWidth - 150)) + "px";
+      menu.style.top = (rect.bottom + 5) + "px";
+      menu.style.maxHeight = Math.max(40, innerHeight - rect.bottom - 13) + "px";
+      menu.hidden = false;
+      const selected = menu.querySelector('[aria-selected="true"]') || menu.firstElementChild;
+      selected.focus({ preventScroll: true });
+      selected.scrollIntoView({ block: "nearest" });
+    }
+
+    function resetCopy() {
+      clearTimeout(copyTimer);
+      copyButton.classList.remove("is-copied");
+      copyButton.setAttribute("aria-label", "复制");
+      copyButton.dataset.tooltip = "复制";
+    }
+
+    function syncPin() {
+      pinButton.setAttribute("aria-pressed", pinned ? "true" : "false");
+      pinButton.setAttribute("aria-label", pinned ? "取消固定" : "固定");
+      pinButton.dataset.tooltip = pinned ? "取消固定" : "固定";
+    }
+
+    window.intext = {
+      apply(state) {
+        const changed = state.seq !== appliedSeq || document.getElementById("source").textContent !== (state.source || "");
+        if (typeof state.seq === "number") {
+          if (state.seq < appliedSeq) return;
+          appliedSeq = state.seq;
+        }
+        resetCopy();
+        closeLanguages();
+        sourceCode = state.sourceLang || "auto";
+        targetCode = state.resultLang || "zh";
+        const wasInput = inputMode;
+        inputMode = state.mode === "input";
+        input.hidden = !inputMode;
+        result.hidden = inputMode;
+        document.getElementById("source").hidden = inputMode;
+        document.getElementById("retry").hidden = inputMode;
+        document.getElementById("copy").hidden = inputMode;
+        document.getElementById("submit").hidden = !inputMode;
+        if (inputMode && Object.hasOwn(state, "draft")) input.value = state.draft;
+        document.getElementById("submit").disabled = !input.value.trim();
+        if (inputMode && (!wasInput || state.enter)) input.focus({ preventScroll: true });
+        document.getElementById("from").textContent = state.from || "";
+        document.getElementById("to").textContent = state.to || "";
+        document.getElementById("source").textContent = state.source || "";
+        document.getElementById("source").lang = state.sourceLang || "";
+        const modelButton = document.getElementById("model");
+        modelButton.textContent = state.model || "设置模型";
+        modelButton.dataset.tooltip = state.model || "请求设置";
+        result.lang = state.resultLang || "";
+        const busy = state.status === "正在翻译" || state.status === "正在识别";
+        const normal = !state.status || ["已缓存", "未缓存", "输入翻译"].includes(state.status);
+        const failure = !normal && !busy;
+        panel.dataset.resultState = state.result ? "content" : busy ? "progress" : failure ? "error" : "empty";
+        const message = String(state.status || "").replace(/\s+/g, " ").trim();
+        // Cache hits are implementation details. Surface only progress and
+        // failures, and keep the full error behind the help control.
+        tip.textContent = failure ? message : "";
+        help.hidden = !failure;
+        announcement.textContent = normal ? "" : message;
+        panel.setAttribute("aria-busy", busy ? "true" : "false");
+        retryButton.classList.toggle("is-busy", busy);
+        document.getElementById("retry").disabled = busy || !state.source;
+        document.getElementById("copy").disabled = !state.result;
+        document.getElementById("swap").disabled = busy || !state.result;
+        const displayResult = state.result || (busy ? message + "…" : failure ? (message.length <= 12 ? message : "请求失败") : "");
+        if (result.textContent !== displayResult) {
+          result.textContent = displayResult;
+          result.classList.remove("is-settle");
+          void result.offsetWidth;
+          result.classList.add("is-settle");
+        }
+        if (state.enter) {
+          panel.classList.remove("is-in");
+          void panel.offsetWidth;
+          panel.classList.add("is-in");
+        }
+        pinned = !!state.pinned;
+        syncPin();
+        if (changed) content.scrollTop = 0;
+      }
+    };
+
+    function api(name, arg) {
+      const bridge = window.pywebview && window.pywebview.api;
+      if (bridge && typeof bridge[name] === "function") {
+        return arguments.length > 1 ? bridge[name](arg) : bridge[name]();
+      }
+    }
+    panel.addEventListener("click", function (event) {
+      const button = event.target.closest(".iconbtn, .swap, .lang");
+      if (!button || button.disabled) return;
+      // Keep fast mouse and keyboard activations visible after release.
+      clearTimeout(button.feedbackTimer);
+      button.classList.add("is-clicked");
+      button.feedbackTimer = setTimeout(function () { button.classList.remove("is-clicked"); }, 180);
+    });
+    document.getElementById("retry").addEventListener("click", function () { api("retry"); });
+    document.getElementById("dismiss").addEventListener("click", function () { api("hide"); });
+    document.getElementById("model").addEventListener("click", function () { api("open_settings"); });
+    document.getElementById("copy").addEventListener("click", async function () {
+      if (!result.textContent.trim()) return;
+      const seq = appliedSeq;
+      try {
+        const copied = await api("copy_text", result.textContent);
+        if (copied && seq === appliedSeq) {
+          resetCopy();
+          copyButton.classList.add("is-copied");
+          copyButton.setAttribute("aria-label", "已复制");
+          copyButton.dataset.tooltip = "已复制";
+          announcement.textContent = "已复制";
+          copyTimer = setTimeout(resetCopy, 1400);
+        }
+      } catch (error) { /* The native bridge reports copy failures in the status. */ }
+    });
+    document.getElementById("pin").addEventListener("click", function () {
+      pinned = !pinned;
+      syncPin();
+      api("set_pinned", pinned);
+    });
+    document.getElementById("swap").addEventListener("click", function () {
+      if (sourceCode === "auto") chooseLanguage("reverse", this);
+      else api("swap");
+    });
+    ["from", "to"].forEach(function (id) {
+      document.getElementById(id).addEventListener("click", function () { chooseLanguage(id === "from" ? "source" : "target", this); });
+    });
+    input.addEventListener("input", function () { document.getElementById("submit").disabled = !input.value.trim(); });
+    document.getElementById("submit").addEventListener("click", function () { api("submit_text", input.value); });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && event.ctrlKey && !event.isComposing && input.value.trim()) {
+        event.preventDefault(); api("submit_text", input.value);
+      }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !menu.hidden) {
+        const anchor = menuAnchor;
+        closeLanguages();
+        if (anchor) anchor.focus({ preventScroll: true });
+        event.preventDefault(); return;
+      }
+      if (event.key === "Escape") api("hide");
+    });
+    document.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      if (event.target.closest("#languages, .mac-thumb")) return;
+      if (!event.target.closest("#from, #to, #swap")) closeLanguages();
+      if (pinned || event.target.closest("#panel")) return;
+      api("hide");
+    });
+    if (window.intextScroll) window.intextScroll.mount(content, { inset: 0, size: 4, endInset: 4 });
+    if (window.intextScroll) window.intextScroll.mount(input, { inset: 0, size: 4, endInset: 4 });
+    if (window.intextScroll) window.intextScroll.mount(menu, { inset: 3, size: 3, endInset: 8, layer: 70 });
+  </script>
+</body>
+</html>

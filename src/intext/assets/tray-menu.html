@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intext menu</title>
+  <link rel="stylesheet" href="controls.css">
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+    body { padding: 12px; font-family: var(--font-interface); color: var(--text-primary); }
+    .menu {
+      opacity: 0;
+      padding: 6px; border-radius: 12px;
+      background: light-dark(rgba(255,251,247,0.97), rgba(44,42,40,0.97));
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72,48,28,0.08), rgba(255,255,255,0.08)),
+        0 6px 16px light-dark(rgba(72,48,28,0.16), rgba(0,0,0,0.4));
+      backdrop-filter: blur(18px);
+    }
+    button {
+      display: flex; align-items: center; gap: 8px; width: 100%; height: 34px;
+      padding: 0 9px; border: 0; border-radius: 7px; margin: 0;
+      color: inherit; background: transparent; font: inherit; font-size: 15px; font-weight: 600; line-height: 22px; text-align: left;
+    }
+    button:hover { background: var(--control-hover); }
+    button:focus-visible { background: var(--control-selected); }
+    button:active { background: var(--control-pressed); }
+    button:disabled { opacity: 0.5; }
+    button[aria-invalid="true"] { color: var(--warning-ink); }
+    [aria-checked="false"] .menu-mark svg { visibility: hidden; }
+    hr { border: 0; height: 1px; margin: 6px 9px; background: var(--rule-color); }
+    .announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  </style>
+</head>
+<body>
+  <div class="menu" role="menu" aria-label="Intext">
+    <button type="button" role="menuitem" data-action="input"><span class="menu-mark" aria-hidden="true"></span>输入翻译</button>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" data-action="startup">
+      <span class="menu-mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.6 8.2 6.4 11 12.4 4.8"/></svg></span>开机静默启动
+    </button>
+    <hr role="separator">
+    <button type="button" role="menuitem" data-action="quit"><span class="menu-mark" aria-hidden="true"></span>退出</button>
+  </div>
+  <span class="announcement" role="status" id="announcement"></span>
+  <script src="controls.js"></script>
+  <script>
+    const buttons = [...document.querySelectorAll('[data-action]')];
+    const startup = document.querySelector('[data-action="startup"]');
+    function bridge() { return window.pywebview && window.pywebview.api; }
+    const menu = document.querySelector('.menu');
+    let entrance = null;
+    let entranceFrame = 0;
+    function applyState(state) {
+      startup.setAttribute('aria-checked', state.startup ? 'true' : 'false');
+      if (state.error) {
+        startup.setAttribute('aria-invalid', 'true');
+        startup.dataset.tooltip = state.error;
+      } else {
+        startup.removeAttribute('aria-invalid');
+        delete startup.dataset.tooltip;
+      }
+      document.querySelector('#announcement').textContent = state.error || '';
+    }
+    function closeMenu() {
+      cancelAnimationFrame(entranceFrame);
+      entranceFrame = 0;
+      if (entrance) entrance.cancel();
+      entrance = null;
+      menu.style.opacity = '';
+    }
+    function openMenu(state) {
+      closeMenu();
+      applyState(state);
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        menu.style.opacity = '1';
+        return;
+      }
+      // Hidden WebViews defer this frame until the native window is visible.
+      entranceFrame = requestAnimationFrame(() => {
+        entranceFrame = 0;
+        const offset = state.openSide === 'left' ? 4 : -4;
+        entrance = menu.animate([
+          { opacity: 0, transform: `translate3d(${offset}px, 0, 0)` },
+          { opacity: 1, transform: 'translate3d(0, 0, 0)' }
+        ], { duration: 140, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'both' });
+      });
+    }
+    window.intextTray = { apply: applyState, open: openMenu, close: closeMenu };
+
+    buttons.forEach(button => button.addEventListener('click', async () => {
+      const api = bridge();
+      if (!api || !api.activate || button.disabled) return;
+      buttons.forEach(item => item.disabled = true);
+      try {
+        const state = await api.activate(button.dataset.action);
+        if (state) intextTray.apply(state);
+      } finally { buttons.forEach(item => item.disabled = false); }
+    }));
+    document.addEventListener('keydown', event => {
+      const api = bridge();
+      if (event.key === 'Escape') { if (api) api.hide(); return; }
+      let index = buttons.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown') index = (index + 1) % buttons.length;
+      else if (event.key === 'ArrowUp') index = (index - 1 + buttons.length) % buttons.length;
+      else if (event.key === 'Home') index = 0;
+      else if (event.key === 'End') index = buttons.length - 1;
+      else if (event.key === 'Tab') { event.preventDefault(); if (api) api.hide(); return; }
+      else return;
+      event.preventDefault(); buttons[index].focus();
+    });
+    document.addEventListener('pointerdown', event => { if (!event.target.closest('.menu') && bridge()) bridge().hide(); });
+  </script>
+</body>
+</html>

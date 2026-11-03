@@ -1,0 +1,102 @@
+/* One tooltip surface for help text and action labels on both pages. */
+(function () {
+  const tooltip = document.createElement("div");
+  tooltip.id = "tooltip";
+  tooltip.className = "tooltip";
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.hidden = true;
+  document.body.append(tooltip);
+  let owner = null;
+  let timer = 0;
+
+  function hide() {
+    clearTimeout(timer);
+    tooltip.hidden = true;
+    if (owner) {
+      const ids = (owner.getAttribute("aria-describedby") || "").split(/\s+/).filter(id => id && id !== tooltip.id);
+      if (ids.length) owner.setAttribute("aria-describedby", ids.join(" "));
+      else owner.removeAttribute("aria-describedby");
+    }
+    owner = null;
+  }
+
+  function show(button) {
+    if (owner !== button || !button.isConnected || button.disabled) return;
+    const source = button.querySelector(".tip");
+    const text = source ? source.textContent.trim() : button.dataset.tooltip;
+    if (!text) { hide(); return; }
+    const rect = button.getBoundingClientRect();
+    if (rect.bottom <= 0 || rect.top >= innerHeight) { hide(); return; }
+    tooltip.textContent = text;
+    tooltip.classList.remove("is-scrollable");
+    tooltip.scrollTop = 0;
+    tooltip.hidden = false;
+    tooltip.classList.toggle("is-scrollable", tooltip.scrollHeight > tooltip.clientHeight + 1);
+    const bounds = tooltip.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, innerWidth - bounds.width - 8));
+    const below = rect.bottom + 6;
+    const top = below + bounds.height <= innerHeight - 8 ? below : rect.top - bounds.height - 6;
+    tooltip.style.left = left + "px";
+    tooltip.style.top = Math.max(8, Math.min(top, innerHeight - bounds.height - 8)) + "px";
+    const ids = (button.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    if (!ids.includes(tooltip.id)) ids.push(tooltip.id);
+    button.setAttribute("aria-describedby", ids.join(" "));
+  }
+
+  function target(event) {
+    return event.target.closest(".help, [data-tooltip]");
+  }
+
+  document.addEventListener("pointerover", function (event) {
+    const button = target(event);
+    if (!button || button.disabled) return;
+    // Moving onto a child (the ? glyph, for example) must not cancel a
+    // pending show. Only cancel a pending hide for an already visible tip.
+    if (button === owner) { if (!tooltip.hidden) clearTimeout(timer); return; }
+    hide();
+    owner = button;
+    timer = setTimeout(function () { show(button); }, 280);
+  });
+  document.addEventListener("pointerout", function (event) {
+    if (owner && owner.contains(event.target) && (!event.relatedTarget || !owner.contains(event.relatedTarget))) {
+      if (tooltip.classList.contains("is-scrollable")) timer = setTimeout(hide, 180);
+      else hide();
+    }
+  });
+  tooltip.addEventListener("pointerenter", function () { clearTimeout(timer); });
+  tooltip.addEventListener("pointerleave", function (event) {
+    if (owner && event.relatedTarget && owner.contains(event.relatedTarget)) return;
+    hide();
+  });
+  document.addEventListener("focusin", function (event) {
+    const button = target(event);
+    if (!button || !button.matches(":focus-visible")) return;
+    hide();
+    owner = button;
+    show(button);
+  });
+  document.addEventListener("focusout", function (event) {
+    if (owner === event.target) hide();
+  });
+  document.addEventListener("pointerdown", function (event) {
+    if (tooltip.classList.contains("is-scrollable") && tooltip.contains(event.target)) return;
+    hide();
+    if (event.button !== 0) return;
+    const focused = document.activeElement;
+    if (focused && focused.matches(".help")) focused.blur();
+    // Help has no click action. Mouse focus must not latch its tooltip open.
+    if (event.target.closest(".help")) event.preventDefault();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") { hide(); return; }
+    if (tooltip.hidden || !tooltip.classList.contains("is-scrollable") || document.activeElement !== owner) return;
+    const steps = { ArrowDown: 32, ArrowUp: -32, PageDown: tooltip.clientHeight - 24, PageUp: 24 - tooltip.clientHeight };
+    if (Object.hasOwn(steps, event.key)) {
+      event.preventDefault();
+      tooltip.scrollTop += steps[event.key];
+    }
+  });
+  document.addEventListener("scroll", function (event) { if (event.target !== tooltip) hide(); }, true);
+  window.addEventListener("blur", hide);
+  window.addEventListener("resize", hide);
+})();

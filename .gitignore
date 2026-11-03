@@ -1,0 +1,64 @@
+# Python caches, environments, and test reports
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Build outputs (keep the source packaging/intext.spec)
+build/
+dist/
+*.exe
+packaging/installer.generated.iss
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+config.json
+config.json.*
+settings.json
+settings.local.json
+credentials.json
+secrets.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime databases and diagnostic output
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.out
+*.err
+
+# Local design reviews, screenshots, and live API experiment records.
+# Keep artwork needed to regenerate icons and the original popup reference.
+/design/*
+!/design/tray-icon.svg
+!/design/icon-source.png
+!/design/popup-v1/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~

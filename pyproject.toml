@@ -1,0 +1,22 @@
+[project]
+name = "intext"
+version = "0.1.0"
+description = "Windows selection translator"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+windows = ["pywebview>=5.3"]
+
+[project.scripts]
+intext = "intext.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+intext = ["assets/*"]
