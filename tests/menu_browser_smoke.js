@@ -109,6 +109,13 @@ async (page) => {
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Escape');
     check(await page.locator('#languages').isHidden(), colorScheme + ' popup Escape closes');
+    await page.locator('#from').click();
+    await page.setViewportSize({width: 360, height: 240});
+    await page.locator('#languages').waitFor({state: 'hidden'});
+    check(await page.locator('#languages').isHidden(), colorScheme + ' resized popup closes old menu');
+    check(await page.locator('#from').getAttribute('aria-expanded') === 'false', colorScheme + ' resized popup clears expanded state');
+    await page.locator('#from').click();
+    check(await page.locator('#languages').evaluate(e => e.getBoundingClientRect().bottom <= innerHeight), colorScheme + ' reopened menu fits resized popup');
   }
   return {passed: true, checks: report.length, cases: report};
 }

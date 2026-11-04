@@ -27,6 +27,7 @@
       box-sizing: border-box;
       height: 100%;
       overflow: auto;
+      scroll-padding-top: 72px;
       padding: 16px 18px 18px;
       background: #f7f4ef;
       background: light-dark(#f7f4ef, #1c1b19);
@@ -115,7 +116,9 @@
       min-width: 0;
       text-align: right;
       font-variant-numeric: tabular-nums;
+      text-overflow: ellipsis;
     }
+    .line input.value:focus { text-overflow: clip; }
     .choice { position: relative; min-width: 0; }
     .native-select {
       position: absolute;
@@ -306,7 +309,7 @@
       text-align: left;
     }
     @keyframes menu-in {
-      from { opacity: 0; transform: translateY(4px) scale(0.98); }
+      from { opacity: 0; transform: translateY(var(--menu-offset, 4px)) scale(0.98); }
       to { opacity: 1; transform: none; }
     }
     .line.is-off .name { color: var(--text-secondary); }
@@ -325,8 +328,10 @@
       justify-content: center;
       gap: 8px;
       margin-left: auto;
-      min-width: 148px;
-      max-width: calc(100% - 88px);
+      flex: 0 0 148px;
+      width: 148px;
+      min-width: 0;
+      max-width: 148px;
       height: 34px;
       padding: 0 12px;
       overflow: hidden;
@@ -346,7 +351,7 @@
       text-overflow: ellipsis;
     }
     .keycap-state {
-      flex: 0 1 auto;
+      flex: 0 0 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -421,7 +426,7 @@
 </head>
 <body>
   <form class="sheet" id="sheet" autocomplete="off">
-    <div class="head pywebview-drag-region">
+    <div class="head">
       <picture class="brand">
         <source srcset="mark-light.png" media="(prefers-color-scheme: dark)">
         <img src="mark.png" alt="" draggable="false" width="28" height="28">
@@ -770,6 +775,8 @@
 
     function paintField(line, spec) {
       const field = line.querySelector(".value");
+      if (field.scrollWidth > field.clientWidth) field.dataset.tooltip = field.value;
+      else delete field.dataset.tooltip;
       const enabled = line.querySelector(".switch").getAttribute("aria-checked") === "true";
       const invalid = enabled && coerce(spec, field.value) === null;
       line.classList.toggle("is-off", !enabled);
@@ -1008,6 +1015,8 @@
       if (openBelow && below < 88 && above > below) openBelow = false;
       else if (!openBelow && above < 88 && below > above) openBelow = true;
       pop._below = openBelow;
+      pop.style.transformOrigin = openBelow ? "left top" : "left bottom";
+      pop.style.setProperty("--menu-offset", openBelow ? "4px" : "-4px");
       const room = Math.max(0, Math.min(window.innerHeight - margin * 2, Math.floor(openBelow ? below : above)));
       pop.style.width = rect.width + "px";
       pop.style.minWidth = "0";

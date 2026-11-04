@@ -83,7 +83,7 @@ async (page) => {
     });
   }
   const popupFocus = await focusStyles();
-  check(popupFocus.length > 5 && popupFocus.every(s => s.color === popupFocus[0].color && parseFloat(s.width) >= 1 && parseFloat(s.width) <= 1.5 && s.style === 'solid' && s.offset === '0px'), 'Popup: consistent focus');
+  check(popupFocus.length > 5 && popupFocus.every(s => s.style === 'none' && parseFloat(s.width) === 0), 'Popup: focus has no outline');
 
   async function checkHelp() {
     await page.keyboard.press('Tab');
@@ -91,6 +91,8 @@ async (page) => {
       const button = document.querySelector('.help:not([hidden])');
       const tip = document.querySelector('#tooltip');
       button.scrollIntoView({block:'nearest'});
+      // Let scroll handlers settle before starting the delayed hover check.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       button.focus({preventScroll:true});
       const keyboardOpens = getComputedStyle(tip).display === 'block';
       const press = new PointerEvent('pointerdown', {button:0,bubbles:true,cancelable:true});
@@ -155,12 +157,11 @@ async (page) => {
     const ready = !submit.disabled && !editor.hidden;
     editor.focus({preventScroll: true});
     const inputStyle = getComputedStyle(editor);
-    const inputFocus = inputStyle.outlineStyle === 'solid' && parseFloat(inputStyle.outlineWidth) <= 1.5 &&
-      parseFloat(inputStyle.outlineOffset) < 0 && parseFloat(inputStyle.outlineOffset) + parseFloat(inputStyle.outlineWidth) <= 0.01;
+    const inputFocus = inputStyle.outlineStyle === 'none' && parseFloat(inputStyle.outlineWidth) === 0;
     const submitFits = submit.clientWidth >= submit.scrollWidth && getComputedStyle(submit).whiteSpace === "nowrap";
     document.querySelector("#to").click();
     const options = [...document.querySelectorAll(".language-option")];
-    const menuFocus = options.every(el => { el.focus({preventScroll:true}); return getComputedStyle(el).outlineStyle === 'solid'; });
+    const menuFocus = options.every(el => { el.focus({preventScroll:true}); return getComputedStyle(el).outlineStyle === 'none'; });
     const automaticTargetOmitted = !options.some(el => el.textContent === "自动");
     options.find(el => el.textContent === "日语").click();
     const targetSelected = calls.some(([name, payload]) => name === "set_languages" && payload.target === "ja");
@@ -247,7 +248,7 @@ async (page) => {
   });
   Object.entries(reasoning).forEach(([key,value]) => check(value, "Reasoning: " + key));
   const settingsFocus = await focusStyles();
-  check(settingsFocus.length > 15 && settingsFocus.every(s => s.color === popupFocus[0].color && parseFloat(s.width) >= 1 && parseFloat(s.width) <= 1.5 && s.style === 'solid' && s.offset === '0px'), 'Settings: consistent focus');
+  check(settingsFocus.length > 15 && settingsFocus.every(s => s.style === 'none'), 'Settings: focus has no outline');
   const settingsHelp = await checkHelp();
   await page.setViewportSize({width:248,height:160});
   await page.goto(base + 'tray-menu.html');

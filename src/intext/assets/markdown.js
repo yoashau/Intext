@@ -7,7 +7,7 @@
   md.renderer.rules.table_open = () => '<div class="md-table"><table>';
   md.renderer.rules.table_close = () => '</table></div>';
   function math(content, display) {
-    try { return window.katex.renderToString(content, {displayMode:display, throwOnError:false, trust:false, strict:'ignore', maxExpand:1000}); }
+    try { return window.katex.renderToString(content, {displayMode:display, throwOnError:false, errorColor:'var(--warning-ink)', trust:false, strict:'ignore', maxExpand:1000}); }
     catch (_) { return md.utils.escapeHtml(content); }
   }
   md.inline.ruler.before('escape', 'intext_math', (state, silent) => {

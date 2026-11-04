@@ -68,25 +68,31 @@ async (page) => {
     const calls=[];window.pywebview={api:new Proxy({},{get:(_,key)=>(...args)=>{calls.push([key,...args]);return Promise.resolve(true);}})};
     intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),from:'英语',to:'简体中文',busy:true,status:'正在识别…'});
     const recognition=document.getElementById('status').textContent==='正在识别…' && document.getElementById('panel').getAttribute('aria-busy')==='true';
+    const loadingImageHidden=document.getElementById('image-frame').hidden && !document.getElementById('image').getClientRects().length;
+    document.getElementById('viewport').focus();
+    const noFocusedPlate=getComputedStyle(document.getElementById('viewport')).backgroundColor==='rgba(0, 0, 0, 0)';
     intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),from:'英语',to:'简体中文',busy:true,status:'正在翻译…'});
     const statusStyle=getComputedStyle(document.getElementById('status'));
     const messageStyle=getComputedStyle(document.getElementById('message'));
     const statusAppearance={fontSize:statusStyle.fontSize,lineHeight:statusStyle.lineHeight,color:statusStyle.color};
-    const unframed=messageStyle.boxShadow==='none' && messageStyle.borderStyle==='none' && !document.querySelector('.progress-card,.progress-dot');
+    const unframed=messageStyle.boxShadow==='none' && messageStyle.borderStyle==='none' && messageStyle.backgroundColor==='rgba(0, 0, 0, 0)' && !document.querySelector('.progress-card,.progress-dot');
     const translating=document.getElementById('status').textContent==='正在翻译…';
     document.getElementById('original').click();
-    const progressCompare=document.getElementById('message').hidden;
+    const progressCompare=document.getElementById('message').hidden && !document.getElementById('image-frame').hidden;
     document.getElementById('original').click();
-    const progressRestored=!document.getElementById('message').hidden;
+    const progressRestored=!document.getElementById('message').hidden && document.getElementById('image-frame').hidden;
     const arrow=document.querySelector('.direction .translation-arrow');
     const arrowAppearance={path:arrow.querySelector('path').getAttribute('d'),paths:arrow.querySelectorAll('path').length,width:getComputedStyle(arrow).width,stroke:getComputedStyle(arrow).strokeWidth};
     intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),busy:false,error:'示例完整错误'});
-    const failure=!document.getElementById('error-help').hidden && document.getElementById('error').textContent==='示例完整错误' && document.getElementById('status').textContent==='翻译失败';
+    const failure=!document.getElementById('error-help').hidden && document.getElementById('error').textContent==='示例完整错误' && document.getElementById('status').textContent==='翻译失败' && document.getElementById('image-frame').hidden;
     intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),text:'原文标题\n文字留在原处',model:'vision',busy:false,
       blocks:[{text:'原文标题',left:4,top:9,width:50,height:16,fontSize:24,background:'white',color:'black'},
       {text:'文字留在原处',left:4,top:45,width:66,height:16,fontSize:24,background:'white',color:'black'}]});
     fit();
     const labels=document.querySelectorAll('.region'), first=labels[0].getBoundingClientRect(), box=document.querySelector('#canvas').getBoundingClientRect();
+    const frame=document.getElementById('image-frame').getBoundingClientRect();
+    const imageAligned=['left','top','right','bottom'].every(key=>Math.abs(box[key]-frame[key])<1);
+    const imageDataPreserved=document.getElementById('image').src===image.toDataURL();
     const tools=['retry','copy','original'].map(id=>document.getElementById(id).getBoundingClientRect());
     const sameSize=tools.every(rect=>rect.width===tools[0].width && rect.height===tools[0].height);
     const iconOnly=document.querySelector('#original').textContent.trim()==='';
@@ -95,10 +101,13 @@ async (page) => {
     document.querySelector('#original').click();
     document.querySelector('#copy').click();intextShot.apply({seq:2,text:'stale'});
     const fresh=document.querySelectorAll('.region').length===2;
+    const completed=document.getElementById('message').hidden && !document.getElementById('image-frame').hidden;
+    intextShot.apply({seq:4,width:600,height:240,image:image.toDataURL(),busy:true,status:'正在翻译…',blocks:[]});
+    const retryHidesImage=document.getElementById('image-frame').hidden && !document.getElementById('image').getClientRects().length;
     document.querySelector('#close').click();
     return {positioned:Math.abs((first.left-box.left)/box.width-.04)<.01,
       fitted:[...labels].every(el=>el.scrollHeight<=el.clientHeight+1),compare,sameSize,iconOnly,accessibleToggle,
-      recognition,translating,unframed,failure,progressCompare,progressRestored,completed:document.getElementById('message').hidden,statusAppearance,arrowAppearance,
+      recognition,loadingImageHidden,noFocusedPlate,translating,unframed,failure,progressCompare,progressRestored,imageAligned,imageDataPreserved,completed,retryHidesImage,statusAppearance,arrowAppearance,
       copy:calls.some(c=>c[0]==='copy_text' && c[1]==='原文标题\n文字留在原处'),fresh,close:calls.some(c=>c[0]==='hide'),
       fits:document.body.scrollWidth===innerWidth};
   });Object.entries(overlay).forEach(([key,value])=>check(value,'Overlay '+key));

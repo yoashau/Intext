@@ -1,12 +1,15 @@
 let current = null, sequence = -1, comparing = false, copyTimer = 0;
 let comparisonPinned = false, holdingOriginal = false;
 const canvas = document.getElementById('canvas'), image = document.getElementById('image');
+const frame = document.getElementById('image-frame');
 const labels = document.getElementById('labels'), viewport = document.getElementById('viewport');
 const original = document.getElementById('original'), retry = document.getElementById('retry'), copy = document.getElementById('copy');
 const announcement = document.getElementById('announcement'), panel = document.getElementById('panel');
 function api(name, ...args) { const bridge = window.pywebview && window.pywebview.api; if (bridge && typeof bridge[name] === 'function') return bridge[name](...args); }
 function compare(value) {
   comparing = !!value; labels.hidden = comparing;
+  const hasImage = !!(current && String(current.image || '').startsWith('data:image/png;base64,'));
+  frame.hidden = !hasImage || (!comparing && !!(current.busy || current.error));
   document.getElementById('message').hidden = comparing || !current || (!current.busy && !current.error);
   original.setAttribute('aria-pressed', String(comparing));
   original.setAttribute('aria-label', comparing ? '查看译文' : '查看原图');
@@ -60,7 +63,8 @@ window.intextShot = { apply(state) {
   } else languages.textContent = '截图翻译';
   const model = document.getElementById('model'); model.textContent = state.model || '设置模型'; model.dataset.tooltip = state.model || '请求设置';
   current = state;
-  if (state.image && String(state.image).startsWith('data:image/png;base64,')) { image.src = state.image; canvas.hidden = false; }
+  if (state.image && String(state.image).startsWith('data:image/png;base64,')) image.src = state.image;
+  else image.removeAttribute('src');
   labels.replaceChildren();
   (state.blocks || []).forEach(block => {
     const el = document.createElement('span'); el.className = 'region'; el.tabIndex = 0; el.textContent = block.text;

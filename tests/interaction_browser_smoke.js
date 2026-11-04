@@ -89,5 +89,25 @@ async (page) => {
     return {named, menuName, visible, closed, tabReleased, invalid, local: !endpoint.hasAttribute('aria-invalid')};
   });
   Object.entries(settings).forEach(([key, value]) => check(value, 'settings ' + key));
+  const longHotkey = await page.evaluate(() => {
+    intextSettings.apply({model: 'fixture', hotkey: 'ctrl+alt+shift+win+f12', hotkeyError: '已被占用'});
+    const button = document.getElementById('hotkey-select');
+    const a = button.getBoundingClientRect(), b = document.getElementById('hotkey-shot').getBoundingClientRect();
+    const note = button.querySelector('.keycap-state');
+    return {aligned: Math.abs(a.left-b.left)<1 && Math.abs(a.right-b.right)<1,
+      fullReason: note.textContent==='已被占用' && note.scrollWidth<=note.clientWidth,
+      completeTooltip: button.dataset.tooltip.includes('Ctrl + Alt + Shift + Win + F12')};
+  });
+  Object.entries(longHotkey).forEach(([key, value]) => check(value, 'long hotkey ' + key));
+  await page.evaluate(() => intextSettings.apply({model: 'fixture', fields: {
+    reasoning_effort: {enabled: true, value: 'custom-provider-depth'}
+  }}));
+  await page.locator('#field-reasoning_effort').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(50);
+  await page.locator('#field-reasoning_effort').hover();
+  await page.waitForTimeout(350);
+  check(await page.locator('#tooltip').isVisible() && await page.locator('#tooltip').textContent() === 'custom-provider-depth', 'long field full-value help');
+  await page.locator('#field-reasoning_effort').fill('custom-provider-depth-v2');
+  check(await page.evaluate(() => intextSettings.body().reasoning_effort === 'custom-provider-depth-v2'), 'long field remains editable');
   return report;
 }

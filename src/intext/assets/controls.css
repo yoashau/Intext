@@ -68,7 +68,7 @@
 .menu-opt, .language-option {
   font: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 450;
   line-height: 22px;
   color: var(--text-primary);
 }

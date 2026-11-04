@@ -172,6 +172,7 @@
     .lang[aria-expanded="true"], .swap[aria-expanded="true"] { background: var(--control-hover); }
     .swap { border-radius: 7px; }
     button:disabled { opacity: 0.35; }
+    .swap:disabled { opacity: 1; color: var(--text-tertiary); }
     #pin[aria-pressed="true"] svg .pin-head { fill: currentColor; }
     .copy-check { display: none !important; }
     .is-copied .copy-check { display: block !important; }
@@ -527,6 +528,7 @@
       if (!menu.hidden && !menu.contains(event.target) && event.target !== menuAnchor) closeLanguages();
     });
     window.addEventListener("blur", closeLanguages);
+    window.addEventListener("resize", closeLanguages);
     document.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) return;
       if (event.target.closest("#languages, .mac-thumb")) return;
