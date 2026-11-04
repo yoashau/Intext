@@ -26,6 +26,109 @@ class WindowsSelectionTests(unittest.TestCase):
                 self.assertIsNone(self.platform.read_selected_text())
             clipboard.assert_not_called()
 
+    def test_accessibility_timeout_is_bounded_and_recovers_without_extra_workers(self):
+        import threading
+        import time
+        from intext import uia_win
+
+        release = threading.Event()
+        started = threading.Event()
+        reader = self.platform._AutomationReader(timeout=0.08)
+
+        def stalled():
+            started.set()
+            release.wait(3)
+            return "stale", True
+
+        with patch.object(uia_win, "read_selection", side_effect=stalled) as call, patch("intext.config.log_error"):
+            try:
+                start = time.monotonic()
+                self.assertEqual(reader.read(), (None, True))
+                self.assertLess(time.monotonic() - start, 1)
+                self.assertTrue(started.is_set())
+                self.assertEqual(reader.read(), (None, True))
+                self.assertEqual(call.call_count, 1)
+            finally:
+                release.set()
+            deadline = time.monotonic() + 2
+            while not reader._pending.done() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            call.side_effect = None
+            call.return_value = ("new selection", True)
+            self.assertEqual(reader.read(), ("new selection", True))
+
+    def test_focus_change_during_accessibility_read_cannot_copy_or_translate_stale_text(self):
+        with patch.object(self.platform, "focused_hwnd", side_effect=[100, 200]), \
+             patch.object(self.platform, "_automation_selection", return_value=("old text", True)), \
+             patch.object(self.platform, "copy_focused_control") as copy:
+            self.assertIsNone(self.platform.read_selected_text())
+            copy.assert_not_called()
+
+    def test_native_accessibility_reads_selected_text_and_leaves_empty_caret_alone(self):
+        import ctypes
+        import threading
+        import time
+        from ctypes import wintypes
+
+        user = ctypes.WinDLL("user32", use_last_error=True)
+        user.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.HWND, wintypes.HMENU,
+            wintypes.HINSTANCE, ctypes.c_void_p]
+        user.CreateWindowExW.restype = wintypes.HWND
+        user.SetFocus.argtypes = [wintypes.HWND]
+        user.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user.GetForegroundWindow.restype = wintypes.HWND
+        user.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+        user.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        user.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        previous, ready, windows = user.GetForegroundWindow(), threading.Event(), []
+
+        def create():
+            hwnd = user.CreateWindowExW(0, "EDIT", "Intext synthetic text 12345", 0x90000084,
+                                        200, 180, 400, 100, None, None, None, None)
+            if hwnd:
+                windows.append(hwnd)
+                user.SetForegroundWindow(hwnd)
+                user.SetFocus(hwnd)
+            ready.set()
+            if not hwnd:
+                return
+            message = wintypes.MSG()
+            while user.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
+                user.TranslateMessage(ctypes.byref(message))
+                user.DispatchMessageW(ctypes.byref(message))
+
+        thread = threading.Thread(target=create, daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(ready.wait(5))
+            self.assertTrue(windows)
+            hwnd = windows[0]
+            deadline = time.monotonic() + 2
+            while self.platform.focused_hwnd() != hwnd and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if self.platform.focused_hwnd() != hwnd:
+                self.skipTest("the test window could not take foreground focus")
+            user.SendMessageW(hwnd, 0x00B1, 0, 6)  # EM_SETSEL
+            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+                self.assertEqual(self.platform.read_selected_text(), "Intext")
+                clipboard.assert_not_called()
+            user.SendMessageW(hwnd, 0x00B1, 2, 2)
+            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+                self.assertIsNone(self.platform.read_selected_text())
+                clipboard.assert_not_called()
+        finally:
+            if windows:
+                user.PostMessageW(windows[0], 0x0010, 0, 0)
+            if thread.native_id:
+                user.PostThreadMessageW(thread.native_id, 0x0012, 0, 0)
+            thread.join(3)
+            if previous:
+                user.SetForegroundWindow(previous)
+
     def test_unsupported_control_keeps_image_clipboard_untouched(self):
         with patch.object(self.platform, "_automation_selection", return_value=(None, False)):
             with patch.object(self.platform, "clipboard_safe_to_replace", return_value=False):

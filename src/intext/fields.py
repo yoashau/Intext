@@ -98,13 +98,23 @@ def enabled_payload(fields: dict[str, dict]) -> dict:
     return payload
 
 
-def request_preview(model: str, source: str, target: str, fields: dict[str, dict]) -> dict:
+def request_preview(model: str, source: str, target: str, fields: dict[str, dict], *,
+                    kind: str = "text", shot_input: str = "ocr", shot_display: str = "popup") -> dict:
     """The JSON body that will be sent. Disabled or invalid fields are absent."""
     from .translate import PLACEHOLDER_TEXT, build_chat_body, messages_for
 
+    messages = messages_for(PLACEHOLDER_TEXT, source, target)
+    if kind == "shot" and (shot_input == "image" or shot_display == "overlay"):
+        from .shot_translate import shot_messages
+        from .screenshot import OcrPage, TextRegion
+
+        page = OcrPage((TextRegion(0, "<截图文字区域>", ((0, 0), (1, 0), (1, 1), (0, 1))),)) if shot_display == "overlay" else None
+        messages = shot_messages(source, target, image="data:image/png;base64,<截图PNG>" if shot_input == "image" else None, page=page)
+    elif kind == "shot":
+        messages = messages_for("<截图识别文字>", source, target)
     return build_chat_body(
         model.strip(),
-        messages_for(PLACEHOLDER_TEXT, source, target),
+        messages,
         enabled_payload(fields),
     )
 

@@ -224,6 +224,7 @@ async (page) => {
     const customSaved = saves.at(-1).fields.reasoning_effort.value === "  xhigh  " && intextSettings.body().reasoning_effort === "xhigh";
     button.click();
     const pop = document.querySelector("#" + input.getAttribute("aria-controls"));
+    pop.getAnimations().forEach(animation => animation.finish());
     const customNotMisrepresented = !pop.hidden && !pop.querySelector('[aria-selected="true"]');
     const rect = input.getBoundingClientRect();
     const arrow = button.getBoundingClientRect();

@@ -42,7 +42,13 @@ def main() -> int:
         width=248, height=160, frameless=True, transparent=True, hidden=True,
         on_top=True, shadow=False,
     )
-    for view in (popup, tray):
+    shot = webview.create_window(
+        "Intext screenshot transparency probe", url=(assets / "shot-overlay.html").as_uri(),
+        width=480, height=312, frameless=True, transparent=True, hidden=True,
+        on_top=True, shadow=False,
+    )
+    views = (popup, tray, shot)
+    for view in views:
         view._intext_keep_hidden = True
     report: dict = {"passed": False, "cases": []}
 
@@ -73,7 +79,7 @@ def main() -> int:
             task.GetAwaiter().GetResult()
 
         try:
-            for view in (popup, tray):
+            for view in views:
                 if not view.events.loaded.wait(15):
                     raise TimeoutError("WebView load")
 
@@ -88,16 +94,29 @@ def main() -> int:
                 background.Size = Size(900, 700)
                 background.Show()
                 holder["background"] = background
-                for view, size in ((popup, (460, 312)), (tray, (248, 160))):
+                for view, size in ((popup, (460, 312)), (tray, (248, 160)), (shot, (480, 312))):
                     App._prepare_tool_window(None, view, size)
                     view.native.Location = Point(240, 180)
 
             ui(prepare)
             for theme in ("light", "dark"):
-                for mode, view in (("input", popup), ("result", popup), ("tray", tray)):
+                for mode, view in (("input", popup), ("result", popup), ("tray", tray), ("screenshot", shot)):
                     emulate(view, theme)
                     if mode == "tray":
                         view.evaluate_js("intextTray.open({startup:true,openSide:'right'})")
+                    elif mode == "screenshot":
+                        import base64
+                        import io
+                        from PIL import Image
+
+                        buffer = io.BytesIO()
+                        Image.new("RGB", (360, 140), "white").save(buffer, format="PNG")
+                        state = {"seq": len(report["cases"]) + 1, "from": "英语", "to": "简体中文",
+                                 "image": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(),
+                                 "width": 360, "height": 140, "model": "transparency-test", "busy": False,
+                                 "text": "原位译文", "blocks": [{"text": "原位译文", "left": 8, "top": 20,
+                                     "width": 70, "height": 30, "fontSize": 24, "background": "white", "color": "black"}]}
+                        view.evaluate_js("intextShot.apply(" + json.dumps(state, ensure_ascii=False) + ")")
                     else:
                         state = {"seq": len(report["cases"]) + 1, "from": "英语", "to": "简体中文",
                                  "model": "transparency-test", "status": "输入翻译" if mode == "input" else "未缓存"}
@@ -108,7 +127,7 @@ def main() -> int:
                         view.evaluate_js("intext.apply(" + json.dumps(state, ensure_ascii=False) + ")")
                     for color in ((35, 62, 91), (210, 130, 80)):
                         def show():
-                            for other in (popup, tray):
+                            for other in views:
                                 other.native.Hide()
                             holder["background"].BackColor = Color.FromArgb(*color)
                             holder["background"].Refresh()
@@ -151,7 +170,7 @@ def main() -> int:
             # Closing it after the last WebView can dispatch callbacks into a
             # pywebview instance that has already been removed.
             def cleanup():
-                for view in (popup, tray):
+                for view in views:
                     view.native.Hide()
                 background = holder.get("background")
                 if background is not None:
@@ -160,6 +179,7 @@ def main() -> int:
             try:
                 ui(cleanup)
             finally:
+                shot.destroy()
                 tray.destroy()
                 popup.destroy()
 

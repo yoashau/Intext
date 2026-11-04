@@ -260,11 +260,14 @@
       text-align: left;
     }
     .line .menu-btn { height: 32px; font-size: 15px; }
+    .menu-label { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .choice:not(.combo) > .menu-btn { padding-right: 27px; }
     .menu-btn svg {
+      order: -1;
       flex-shrink: 0;
       width: 11px;
       height: 11px;
-      margin-left: auto;
+      margin-left: 0;
       stroke: currentColor;
       fill: none;
       stroke-width: 1.75;
@@ -308,6 +311,8 @@
     }
 
     .keys { display: grid; gap: 8px; margin-top: 12px; }
+    .shot-option > .choice { flex-basis: 148px; width: 148px; max-width: 148px; }
+    .live-head > .choice { margin-left: auto; width: 148px; }
     .keyline { display: flex; align-items: center; gap: 8px; min-height: 34px; }
     .keycap {
       display: flex;
@@ -454,21 +459,31 @@
         <button type="button" class="keycap" id="hotkey-select"></button>
       </div>
       <div class="keyline">
-        <span class="name">截图<button type="button" class="help" aria-label="截图热键说明">?<span class="tip" id="shot-tip">拖选画面后识别文字。Esc 取消录制。</span></button></span>
+        <span class="name">截图<button type="button" class="help" aria-label="截图热键说明">?<span class="tip" id="shot-tip">拖动选择矩形，按住 Ctrl 可自由圈选。Esc 或右键取消截图；录制快捷键时 Esc 取消录制。</span></button></span>
         <button type="button" class="keycap" id="hotkey-shot"></button>
+      </div>
+      <div class="line shot-option">
+        <span class="name">截图识别<button type="button" class="help" aria-label="截图识别说明">?<span class="tip">本地 OCR 使用 PP-OCRv5，图片留在本机。自动模式优先中英日，其他语言请指定原文语种。图片直译会发送圈选图片，需要所选模型支持多模态。</span></button></span>
+        <select id="shot-input" aria-label="截图识别"><option value="ocr">本地 OCR</option><option value="image">图片直译</option></select>
+      </div>
+      <div class="line shot-option">
+        <span class="name">截图译文<button type="button" class="help" aria-label="截图译文说明">?<span class="tip">翻译浮层展示文本、Markdown 与公式。原图覆盖按文字区域放置译文，可查看原图；复杂背景与很长的译文可能需要对照阅读。</span></button></span>
+        <select id="shot-display" aria-label="截图译文"><option value="popup">翻译浮层</option><option value="overlay">原图覆盖</option></select>
       </div>
     </div>
     <hr class="rule">
     <div id="fields"></div>
     <hr class="rule">
     <div class="live-head">
-      <span class="kicker">本次请求</span>
+      <label class="kicker" for="preview-kind">本次请求</label>
       <button type="button" class="help" aria-label="本次请求说明">?<span class="tip">未启用或无效的字段不会出现在这段请求里。</span></button>
+      <select id="preview-kind" aria-label="请求类型"><option value="text">划词翻译</option><option value="shot">截图翻译</option></select>
     </div>
     <pre class="code" id="live" tabindex="0" role="region" aria-label="请求 JSON" aria-live="polite"><code></code></pre>
   </form>
   <script src="scroll.js"></script>
   <script src="controls.js"></script>
+  <script src="request-policy.js"></script>
   <script>
     const LABELS = {
       auto: "自动",
@@ -500,6 +515,8 @@
       target: "zh",
       hotkey: "ctrl+alt+q",
       shotHotkey: "ctrl+alt+e",
+      shotInput: "ocr",
+      shotDisplay: "popup",
       hotkeyError: "",
       shotHotkeyError: "",
       hotkeyShown: "",
@@ -515,9 +532,9 @@
     function systemPrompt(source, target) {
       const targetName = languageLabel(target);
       if (!source || source === "auto") {
-        return "Translate the user's text into " + targetName + ". Return only the translation.";
+        return "Translate the user's text into " + targetName + ". " + intextPolicy.structure;
       }
-      return "Translate the user's text from " + languageLabel(source) + " into " + targetName + ". Return only the translation.";
+      return "Translate the user's text from " + languageLabel(source) + " into " + targetName + ". " + intextPolicy.structure;
     }
 
     // Same spelling rule as fields.NUMBER_TEXT. Do not use Number() on raw text.
@@ -543,6 +560,14 @@
           { role: "user", content: "<选中文字>" }
         ]
       };
+      if (document.getElementById('preview-kind').value === 'shot') {
+        if (state.shotDisplay === 'overlay' || state.shotInput === 'image') {
+          const overlay = state.shotDisplay === 'overlay';
+          body.messages[0].content += ' ' + (overlay ? intextPolicy.blocks : intextPolicy.image);
+          const text = overlay ? '{"regions": [{"id": 0, "text": "<截图文字区域>"}]}' : 'Translate the selected image.';
+          body.messages[1].content = state.shotInput === 'image' ? [{type:'text',text}, {type:'image_url',image_url:{url:'data:image/png;base64,<截图PNG>'}}] : text;
+        } else body.messages[1].content = '<截图识别文字>';
+      }
       SPECS.forEach((spec) => {
         const item = state.fields[spec.key];
         if (!item || !item.enabled) return;
@@ -599,7 +624,7 @@
     }
 
     const SELECT_TIP = "需要修饰键。Esc 取消录制。";
-    const SHOT_TIP = "拖选画面后识别文字。Esc 取消录制。";
+    const SHOT_TIP = "拖动选择矩形，按住 Ctrl 可自由圈选。Esc 或右键取消截图；录制快捷键时 Esc 取消录制。";
     const ERROR_TIPS = {
       "已被占用": "注册失败，可能已被其他程序占用。",
       "注册失败": "没有注册成功。",
@@ -738,6 +763,8 @@
       state.apiKey = document.getElementById("api-key").value;
       state.source = document.getElementById("source").value;
       state.target = document.getElementById("target").value;
+      state.shotInput = document.getElementById('shot-input').value;
+      state.shotDisplay = document.getElementById('shot-display').value;
       SPECS.forEach((spec) => {
         const line = document.querySelector('[data-key="' + spec.key + '"]');
         state.fields[spec.key] = {
@@ -928,14 +955,15 @@
       if (openBelow && below < 88 && above > below) openBelow = false;
       else if (!openBelow && above < 88 && below > above) openBelow = true;
       pop._below = openBelow;
-      const room = Math.max(0, Math.floor(openBelow ? below : above));
+      const room = Math.max(0, Math.min(window.innerHeight - margin * 2, Math.floor(openBelow ? below : above)));
       pop.style.width = rect.width + "px";
       pop.style.minWidth = "0";
       pop.style.maxHeight = room + "px";
       pop.style.left = rect.left + "px";
       pop.hidden = false;
       const height = Math.min(pop.scrollHeight, room);
-      pop.style.top = (openBelow ? rect.bottom + gap : Math.max(margin, rect.top - gap - height)) + "px";
+      const top = openBelow ? rect.bottom + gap : rect.top - gap - height;
+      pop.style.top = Math.max(margin, Math.min(window.innerHeight - margin - height, top)) + "px";
       if (!pop._aligned) {
         const current = pop.querySelector(".is-on");
         if (current) {
@@ -1014,6 +1042,8 @@
       state.target = next.target || "zh";
       state.hotkey = next.hotkey || state.hotkey;
       state.shotHotkey = next.shotHotkey || next.shot_hotkey || state.shotHotkey;
+      state.shotInput = (next.shotInput || next.shot_input) === 'image' ? 'image' : 'ocr';
+      state.shotDisplay = (next.shotDisplay || next.shot_display) === 'overlay' ? 'overlay' : 'popup';
       if (Object.prototype.hasOwnProperty.call(next, "hotkeyError")) state.hotkeyError = next.hotkeyError || "";
       if (Object.prototype.hasOwnProperty.call(next, "shotHotkeyError")) state.shotHotkeyError = next.shotHotkeyError || "";
       state.hotkeyShown = "";
@@ -1032,6 +1062,10 @@
       document.getElementById("api-key").value = state.apiKey;
       fillSelect("source", SOURCE_OPTIONS, state.source);
       fillSelect("target", TARGET_OPTIONS, state.target);
+      document.getElementById('shot-input').value = state.shotInput;
+      document.getElementById('shot-display').value = state.shotDisplay;
+      mountMenu(document.getElementById('shot-input'));
+      mountMenu(document.getElementById('shot-display'));
       state.source = document.getElementById("source").value;
       state.target = document.getElementById("target").value;
       renderKeys();
@@ -1052,6 +1086,11 @@
 
     fillSelect("source", SOURCE_OPTIONS, state.source);
     fillSelect("target", TARGET_OPTIONS, state.target);
+    ['shot-input', 'shot-display', 'preview-kind'].forEach(id => mountMenu(document.getElementById(id)));
+    ['shot-input', 'shot-display'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+      document.getElementById('preview-kind').value = 'shot';
+      mountMenu(document.getElementById('preview-kind'));
+    }));
     document.getElementById("endpoint").value = state.endpoint;
     renderKeys();
     buildFields();

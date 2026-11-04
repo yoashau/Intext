@@ -16,6 +16,8 @@ coverage.xml
 # Build outputs (keep the source packaging/intext.spec)
 build/
 dist/
+src/intext/assets/ocr/*.onnx
+src/intext/assets/ocr/*.download
 *.exe
 packaging/installer.generated.iss
 

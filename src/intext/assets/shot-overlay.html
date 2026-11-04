@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intext · 截图翻译</title>
+  <link rel="stylesheet" href="controls.css">
+  <link rel="stylesheet" href="shot-overlay.css">
+</head>
+<body>
+  <div class="stage">
+    <section class="glass" id="panel" aria-label="截图翻译">
+      <header class="head">
+        <span class="languages" id="languages">截图翻译</span>
+        <div class="status-line">
+          <button class="help" id="error-help" aria-label="翻译失败详情" hidden>?<span class="tip" id="error"></span></button>
+          <button class="window-dot" id="close" aria-label="关闭截图翻译" data-tooltip="关闭截图翻译"></button>
+        </div>
+      </header>
+      <div class="viewport" id="viewport" role="region" aria-label="原图与区域译文" tabindex="0">
+        <div id="canvas" hidden><img id="image" alt="所选截图" draggable="false"><div id="labels"></div></div>
+        <div id="message" hidden><div class="progress-card"><span class="progress-dot" id="progress-dot" aria-hidden="true"></span><span id="status">正在识别…</span></div></div>
+      </div>
+      <footer class="foot">
+        <div class="actions">
+          <button class="iconbtn" id="retry" aria-label="再译" data-tooltip="再译"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6.5 6.5 0 1 0-.4 5M16 4.5V8h-3.5"/></svg></button>
+          <button class="iconbtn" id="copy" aria-label="复制译文" data-tooltip="复制译文">
+            <svg class="copy-pages" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M5 13a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2"/></svg>
+            <svg class="copy-check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10 3.7 3.7 7.3-7.4"/></svg>
+          </button>
+          <button class="iconbtn compare" id="original" aria-label="查看原图" aria-pressed="false" data-tooltip="点击切换，或按住空格查看原图"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M10 3v14M12.5 8h2M12.5 12h2"/><circle cx="6.5" cy="10" r="1.25"/></svg></button>
+        </div>
+        <button class="model" id="model" aria-label="请求设置" data-tooltip="请求设置"></button>
+      </footer>
+    </section>
+  </div>
+  <span class="visually-hidden" id="announcement" role="status" aria-live="polite"></span>
+  <script src="controls.js"></script>
+  <script src="shot-overlay.js"></script>
+</body>
+</html>

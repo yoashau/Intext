@@ -1,0 +1,30 @@
+.markdown { white-space: normal; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 .8em; white-space: pre-wrap; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 { margin: .8em 0 .4em; line-height: 1.35; font-weight: 650; }
+.markdown h1 { font-size: 1.35em; }
+.markdown h2 { font-size: 1.2em; }
+.markdown h3, .markdown h4, .markdown h5, .markdown h6 { font-size: 1.06em; }
+.markdown ul, .markdown ol { margin: .45em 0 .85em; padding-left: 1.6em; }
+.markdown li { margin: .2em 0; }
+.markdown li > p { margin-bottom: .2em; }
+.markdown pre { max-width: 100%; overflow: auto; margin: .7em 0; padding: 10px 12px; border-radius: 8px; background: light-dark(rgba(72,48,28,.055),rgba(255,255,255,.06)); white-space: pre; font-size: .86em; line-height: 1.55; }
+.markdown code { font-family: 'Cascadia Mono', Consolas, monospace; font-size: .88em; }
+.markdown :not(pre) > code { padding: .12em .3em; border-radius: 4px; background: light-dark(rgba(72,48,28,.06),rgba(255,255,255,.08)); }
+.markdown pre code { font-size: inherit; white-space: pre; }
+.markdown blockquote { margin: .6em 0; padding-left: 12px; border-left: 2px solid var(--rule-color); color: var(--text-secondary); }
+.markdown .md-table { max-width: 100%; overflow-x: auto; margin: .7em 0; }
+.markdown table { border-collapse: collapse; font-size: .9em; min-width: 100%; }
+.markdown th, .markdown td { border: 1px solid var(--rule-color); padding: 5px 8px; text-align: left; white-space: nowrap; }
+.markdown th { font-weight: 600; background: light-dark(rgba(72,48,28,.04),rgba(255,255,255,.04)); }
+.markdown hr { border: 0; border-top: 1px solid var(--rule-color); margin: .8em 0; }
+.markdown .md-link { text-decoration: underline; text-decoration-color: var(--text-tertiary); text-underline-offset: 2px; }
+.markdown .md-math { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.markdown .katex { font-size: 1.08em; }
+.markdown .katex-display { margin: .65em 0; }
+.markdown pre, .markdown .md-table, .markdown .md-math { scrollbar-width: auto; scrollbar-color: auto; }
+.markdown pre::-webkit-scrollbar, .markdown .md-table::-webkit-scrollbar, .markdown .md-math::-webkit-scrollbar { display: block; width: 4px; height: 4px; background: transparent; }
+.markdown pre::-webkit-scrollbar-thumb, .markdown .md-table::-webkit-scrollbar-thumb, .markdown .md-math::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scroll-thumb); }
+.markdown pre::-webkit-scrollbar-button, .markdown .md-table::-webkit-scrollbar-button, .markdown .md-math::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.source-image { display: block; max-height: 100px; max-width: 100%; margin-top: 12px; border-radius: 6px; object-fit: contain; }

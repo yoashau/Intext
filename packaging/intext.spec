@@ -1,12 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
 root = Path(SPECPATH).resolve().parent
 datas = [(str(root / "src" / "intext" / "assets"), "intext/assets")]
 binaries = []
 hidden = ["clr", "pythonnet", "clr_loader", "bottle", "proxy_tools", "webview.platforms.winforms", "intext.smooth_frame"]
+hidden += collect_submodules("rapidocr")
+datas += collect_data_files("rapidocr", excludes=["models/*"])
+datas += copy_metadata("rapidocr")
+datas += copy_metadata("onnxruntime")
 for package in ("webview", "pythonnet", "clr_loader", "bottle"):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas

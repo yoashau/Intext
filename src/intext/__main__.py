@@ -15,10 +15,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--silent", action="store_true", help="start in the tray without opening a window")
     parser.add_argument("--text", help="translate one string and print it")
     parser.add_argument("--check", action="store_true", help="verify the install without opening a window")
+    parser.add_argument("--check-ocr", type=Path, metavar="IMAGE", help="recognize a local test image without opening a window or sending a request")
     args = parser.parse_args(argv)
 
     if args.check:
         return _check()
+
+    if args.check_ocr is not None:
+        import io
+        from PIL import Image
+        from .ocr import recognize
+        from .screenshot import Screenshot, Selection
+
+        with Image.open(args.check_ocr) as image:
+            image = image.convert("RGB")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            text = recognize(Screenshot(output.getvalue(), Selection((0, 0, *image.size), ()))).text
+        print(text)
+        return 0 if text else 1
 
     if args.text is not None:
         from .app import App
@@ -71,7 +86,7 @@ def _check() -> int:
     from .fields import request_preview
 
     body = request_preview("gpt 6.1 sol", "auto", "zh", {})
-    missing = [name for name in ("popup.html", "settings.html", "tray-menu.html", "controls.css", "controls.js", "scroll.js", "mark.png", "mark-light.png", "intext.ico", "intext-on-dark.ico", "tray.ico", "tray-on-dark.ico") if not (asset_dir() / name).is_file()]
+    missing = [name for name in ("popup.html", "settings.html", "tray-menu.html", "shot-overlay.html", "shot-overlay.css", "shot-overlay.js", "controls.css", "controls.js", "scroll.js", "markdown.js", "markdown.css", "request-policy.js", "vendor/markdown-it/markdown-it.min.js", "vendor/katex/katex.min.js", "vendor/katex/katex.min.css", "vendor/katex/fonts/KaTeX_Main-Regular.woff2", "mark.png", "mark-light.png", "intext.ico", "intext-on-dark.ico", "tray.ico", "tray-on-dark.ico", "ocr/ch_PP-OCRv5_det_mobile.onnx", "ocr/ch_PP-OCRv5_rec_server.onnx") if not (asset_dir() / name).is_file()]
     if missing or "temperature" in body or body["messages"][1]["content"] != "<选中文字>":
         print("check failed", file=sys.stderr)
         return 1

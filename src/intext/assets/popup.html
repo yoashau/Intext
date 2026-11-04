@@ -200,6 +200,8 @@
     }
   </style>
   <link rel="stylesheet" href="controls.css">
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="markdown.css">
 </head>
 <body>
   <div class="stage">
@@ -217,8 +219,9 @@
       </div>
       <div class="content" id="content" tabindex="0" role="region" aria-label="原文与译文">
         <textarea id="input" hidden aria-label="待翻译文字" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
-        <p class="result" id="result" lang="zh"></p>
-        <p class="source" id="source" lang="en"></p>
+        <div class="result" id="result" lang="zh"></div>
+        <div class="source" id="source" lang="en"></div>
+        <img id="shot-image" class="source-image" alt="所选截图" hidden>
       </div>
       <div class="foot">
         <div class="actions">
@@ -242,6 +245,9 @@
   <span class="visually-hidden" id="announcement" role="status" aria-live="polite"></span>
   <script src="scroll.js"></script>
   <script src="controls.js"></script>
+  <script src="vendor/markdown-it/markdown-it.min.js"></script>
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="markdown.js"></script>
   <script>
     let pinned = false;
     let appliedSeq = -1;
@@ -331,7 +337,7 @@
 
     window.intext = {
       apply(state) {
-        const changed = state.seq !== appliedSeq || document.getElementById("source").textContent !== (state.source || "");
+        const changed = state.seq !== appliedSeq || document.getElementById("source").dataset.raw !== (state.source || "");
         if (typeof state.seq === "number") {
           if (state.seq < appliedSeq) return;
           appliedSeq = state.seq;
@@ -353,7 +359,11 @@
         if (inputMode && (!wasInput || state.enter)) input.focus({ preventScroll: true });
         document.getElementById("from").textContent = state.from || "";
         document.getElementById("to").textContent = state.to || "";
-        document.getElementById("source").textContent = state.source || "";
+        window.intextMarkdown.render(document.getElementById("source"), state.source || "");
+        const shotImage = document.getElementById('shot-image');
+        shotImage.hidden = inputMode || !state.image;
+        if (state.image && String(state.image).startsWith('data:image/png;base64,')) shotImage.src=state.image;
+        else shotImage.removeAttribute('src');
         document.getElementById("source").lang = state.sourceLang || "";
         const modelButton = document.getElementById("model");
         modelButton.textContent = state.model || "设置模型";
@@ -371,12 +381,12 @@
         announcement.textContent = normal ? "" : message;
         panel.setAttribute("aria-busy", busy ? "true" : "false");
         retryButton.classList.toggle("is-busy", busy);
-        document.getElementById("retry").disabled = busy || !state.source;
+        document.getElementById("retry").disabled = busy || (!state.source && !state.shot);
         document.getElementById("copy").disabled = !state.result;
         document.getElementById("swap").disabled = busy || !state.result;
         const displayResult = state.result || (busy ? message + "…" : failure ? (message.length <= 12 ? message : "请求失败") : "");
-        if (result.textContent !== displayResult) {
-          result.textContent = displayResult;
+        if (result.dataset.raw !== displayResult) {
+          window.intextMarkdown.render(result, displayResult);
           result.classList.remove("is-settle");
           void result.offsetWidth;
           result.classList.add("is-settle");
@@ -413,7 +423,7 @@
       if (!result.textContent.trim()) return;
       const seq = appliedSeq;
       try {
-        const copied = await api("copy_text", result.textContent);
+        const copied = await api("copy_text", result.dataset.raw || result.textContent);
         if (copied && seq === appliedSeq) {
           resetCopy();
           copyButton.classList.add("is-copied");

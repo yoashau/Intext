@@ -77,9 +77,12 @@ class OpenAICompatibleProvider:
         self.timeout = timeout
 
     def translate(self, text: str) -> str:
+        return self.complete(messages_for(text, self.source, self.target))
+
+    def complete(self, messages: list[dict]) -> str:
         body = build_chat_body(
             self.model,
-            messages_for(text, self.source, self.target),
+            messages,
             self.optional_fields,
         )
         headers = {

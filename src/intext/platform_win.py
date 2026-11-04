@@ -7,7 +7,9 @@ or an image, the copy fallback is skipped. Text that is replaced is restored.
 from __future__ import annotations
 
 import ctypes
+import threading
 import time
+from concurrent.futures import Future, TimeoutError
 from ctypes import wintypes
 from collections.abc import Callable
 
@@ -506,41 +508,59 @@ def _copy_selection(wait_s: float, release_timeout: float) -> tuple[str | None, 
     return _await_clipboard(wait_s), True
 
 
-def _automation_selection() -> tuple[str | None, bool]:
-    """Read accessible selections before considering a clipboard fallback.
+class _AutomationReader:
+    """Limit a provider call without accumulating hung background threads."""
 
-    The flag also handles password controls without sending a copy command.
-    UIAutomation is the Windows accessibility API; no clipboard data changes.
-    """
-    try:
-        import clr
-        from pathlib import Path
-        from System.Runtime.InteropServices import RuntimeEnvironment
+    def __init__(self, timeout: float = 1.5) -> None:
+        self.timeout = timeout
+        self._lock = threading.Lock()
+        self._pending: Future | None = None
 
-        framework = Path(str(RuntimeEnvironment.GetRuntimeDirectory())) / "WPF"
-        clr.AddReference(str(framework / "UIAutomationClient.dll"))
-        clr.AddReference(str(framework / "UIAutomationTypes.dll"))
-        from System.Windows.Automation import AutomationElement, TextPattern
-        from .translate import MAX_TEXT_CHARS
+    def read(self) -> tuple[str | None, bool]:
+        with self._lock:
+            if self._pending is not None and not self._pending.done():
+                return None, True
+            result = Future()
+            self._pending = result
 
-        element = AutomationElement.FocusedElement
-        if element is None:
-            return None, False
-        if element.Current.IsPassword:
+            def run() -> None:
+                try:
+                    from .uia_win import read_selection
+
+                    result.set_result(read_selection())
+                except Exception as exc:
+                    result.set_exception(exc)
+
+            threading.Thread(target=run, name="Intext UI Automation", daemon=True).start()
+        try:
+            return result.result(timeout=self.timeout)
+        except TimeoutError:
+            from .config import log_error
+
+            log_error("selection: UI Automation timed out")
+            # A late provider result must never cause a clipboard or key action.
             return None, True
-        pattern = element.GetCurrentPattern(TextPattern.Pattern)
-        selection = pattern.GetSelection()
-        text = "\n".join(str(item.GetText(MAX_TEXT_CHARS + 1)) for item in selection).strip()
-        return (text, True) if text else (None, False)
-    except Exception:
-        # Many controls don't implement TextPattern. Ctrl+C still supports
-        # them, including custom editors and older desktop applications.
-        return None, False
+        except Exception as exc:
+            from .config import log_error
+
+            log_error(f"selection: UI Automation failed ({type(exc).__name__})")
+            return None, True
+
+
+_automation_reader = _AutomationReader()
+
+
+def _automation_selection() -> tuple[str | None, bool]:
+    """Read accessible selections with a bounded, non-UI MTA worker."""
+    return _automation_reader.read()
 
 
 def read_selected_text(wait_s: float = 0.6) -> str | None:
     """Read the focused selection without destroying a non-text clipboard."""
+    initial_focus = focused_hwnd()
     text, handled = _automation_selection()
+    if initial_focus and focused_hwnd() != initial_focus:
+        return None
     if handled:
         return text
     if not clipboard_safe_to_replace():
@@ -821,7 +841,7 @@ def _button_down() -> bool:
     return bool(user32.GetAsyncKeyState(0x01) & 0x8000)
 
 
-def begin_form_resize(form, edge: str, on_finished=None) -> None:
+def begin_form_resize(form, edge: str, on_finished=None, *, minimum=None) -> None:
     """Resize a frameless form from an edge. The page only starts the drag.
 
     A UI timer reads the cursor, so the webview does not have to forward every
@@ -841,6 +861,7 @@ def begin_form_resize(form, edge: str, on_finished=None) -> None:
     from System.Drawing import Rectangle
     from System.Windows.Forms import Cursors, Cursor, Timer
     from .geometry import MINIMUM_SETTINGS
+    minimum = minimum or MINIMUM_SETTINGS
 
     scale = 1.0
     try:
@@ -901,8 +922,8 @@ def begin_form_resize(form, edge: str, on_finished=None) -> None:
             top += dy
         if "s" in current:
             bottom += dy
-        min_w = max(int(form.MinimumSize.Width), int(MINIMUM_SETTINGS[0] * scale))
-        min_h = max(int(form.MinimumSize.Height), int(MINIMUM_SETTINGS[1] * scale))
+        min_w = max(int(form.MinimumSize.Width), int(minimum[0] * scale))
+        min_h = max(int(form.MinimumSize.Height), int(minimum[1] * scale))
         if right - left < min_w:
             if "w" in current:
                 left = right - min_w

@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import traceback
+from copy import deepcopy
 from pathlib import Path
 
 from .cache import MemoryCache, SqliteCache, TieredCache
@@ -180,6 +181,14 @@ class App:
         self._pinned = bool(self.settings.pinned)
         self._popup_requested = False
         self._last_text = ""
+        self._last_shot = None
+        self._shot_context = None
+        self._shot_page = None
+        self._shot_window = None
+        self._shot_hwnd = 0
+        self._shot_state = None
+        self._shot_ready = False
+        self._shot_requested = False
         self._popup_state = None
         self._popup = None
         self._popup_hwnd = 0
@@ -254,27 +263,173 @@ class App:
         return int(self._popup_hwnd or 0)
 
     def on_shot(self) -> None:
+        if not self._selecting.acquire(blocking=False):
+            return
+        was_visible = False
+        captured = False
         try:
             _boot("shot")
             from .platform_win import hide_owned_window, window_visible
+            from .capture_win import capture_shot
 
             hwnd = self._popup_hwnd_now()
             was_visible = window_visible(hwnd)
-            # A pinned window also has to move aside. Pin state itself stays.
             self._hold_show = True
-            showed = False
-            try:
-                hide_owned_window(hwnd)
-                showed = self._capture(self._read_shot, quiet_cancel=True)
-            finally:
-                if not showed and not was_visible:
-                    self._show_epoch += 1
-                self._hold_show = False
-            if was_visible and not showed:
-                self._reveal(dict(self._popup_state or self._base_state(self._last_text)))
-        except Exception:
+            hide_owned_window(hwnd)
+            hide_owned_window(self._shot_hwnd)
+            if self._shot_window is not None:
+                self._on_ui(self._shot_window, lambda: self._hide_native(self._shot_window))
+            shot = capture_shot()
+            if shot is not None:
+                captured = True
+                self._gen += 1
+                self._last_shot, self._last_text, self._shot_page = shot, "", None
+                self._shot_context = deepcopy(self.settings)
+        except Exception as exc:
             log_error(traceback.format_exc())
             _boot("shot-failed")
+            self._hold_show = False
+            state = self._error_state("", "截图失败")
+            state["status"] = f"截图失败：{exc}"
+            self._push(state, enter=True)
+            return
+        finally:
+            self._hold_show = False
+            self._selecting.release()
+            if not captured:
+                if was_visible:
+                    self._reveal(dict(self._popup_state or self._base_state(self._last_text)))
+                else:
+                    self._show_epoch += 1
+                if self._shot_requested and self._shot_state:
+                    self._push_shot(self._shot_state, reveal=True)
+        if captured:
+            self._start_shot(self._gen, self._shot_context)
+
+    def _start_shot(self, gen: int, settings, *, use_cache: bool = True) -> None:
+        if gen != self._gen:
+            return
+        shot = self._last_shot
+        if shot is None:
+            return
+        if settings.shot_display == "overlay":
+            self.hide()
+            self._push_shot({"seq": gen, "image": shot.data_url, "width": shot.selection.rect[2],
+                             "height": shot.selection.rect[3], "blocks": [], "busy": True,
+                             "model": settings.model, "status": "正在识别…"}, reveal=True)
+        else:
+            self.hide_shot()
+            state = self._recognizing_state()
+            state.update(shot=True, image=shot.data_url if settings.shot_input == "image" else "",
+                         source="图片直译" if settings.shot_input == "image" else "")
+            if settings.shot_input == "image":
+                state["status"] = "正在翻译"
+            self._push(state, enter=not self._pinned)
+        threading.Thread(target=self._finish_shot, args=(shot, gen, settings),
+                         kwargs={"use_cache": use_cache}, daemon=True).start()
+
+    def _finish_shot(self, shot, gen: int, settings, *, use_cache: bool = True) -> None:
+        from .ocr import recognize
+        from .shot_translate import translate_shot
+
+        state = self._base_state("")
+        state.update(seq=gen, shot=True, model=settings.model, from_=language_label(settings.source),
+                     to=language_label(settings.target), sourceLang=settings.source, resultLang=settings.target)
+        state["from"] = state.pop("from_")
+        if settings.shot_input == "image":
+            state.update(source="图片直译", image=shot.data_url)
+        try:
+            if gen != self._gen:
+                return
+            page = None
+            if settings.shot_input == "ocr" or settings.shot_display == "overlay":
+                cached_page = self._shot_page
+                page = cached_page[1] if cached_page and cached_page[0] == settings.source else recognize(shot, settings.source)
+                if gen != self._gen:
+                    return
+                self._shot_page = (settings.source, page)
+                state["source"] = page.text
+            if gen != self._gen:
+                return
+            if settings.shot_display == "popup":
+                state["status"] = "正在翻译"
+                self._push(state, enter=False, reveal=False)
+            else:
+                self._push_shot({"seq": gen, "image": shot.data_url, "width": shot.selection.rect[2],
+                                 "height": shot.selection.rect[3], "blocks": [], "busy": True,
+                                 "model": settings.model, "status": "正在翻译…"})
+            provider = OpenAICompatibleProvider(endpoint=settings.endpoint, api_key=settings.api_key,
+                model=settings.model, source=settings.source, target=settings.target,
+                optional_fields=enabled_payload(settings.fields))
+            result = translate_shot(shot, provider=provider, cache=self.cache, page=page,
+                input_mode=settings.shot_input, display=settings.shot_display, use_cache=use_cache)
+            if gen != self._gen:
+                return
+            if settings.shot_display == "overlay":
+                from .shot_overlay import overlay_payload
+
+                self._push_shot({**overlay_payload(shot, page, result.regions), "seq": gen,
+                                 "text": result.text, "model": settings.model, "busy": False})
+            else:
+                state.update(result=result.text, status="已缓存" if result.cached else "未缓存")
+                self._push(state, enter=False, reveal=False)
+        except Exception as exc:
+            if gen != self._gen:
+                return
+            log_error(traceback.format_exc())
+            message = str(exc) if isinstance(exc, TranslationError) else "截图翻译失败"
+            if settings.shot_display == "overlay":
+                self._push_shot({"seq": gen, "image": shot.data_url, "width": shot.selection.rect[2],
+                                 "height": shot.selection.rect[3], "blocks": [], "model": settings.model,
+                                 "busy": False, "error": message})
+            else:
+                state["status"] = message
+                self._push(state, enter=False, reveal=False)
+
+    def hide_shot(self) -> None:
+        self._shot_requested = False
+        window = self._shot_window
+        if window is not None:
+            window._intext_keep_hidden = True
+            self._on_ui(window, lambda: self._hide_native(window))
+
+    def _push_shot(self, state: dict, *, reveal: bool = False) -> None:
+        if state.get("seq") != self._gen:
+            return
+        state = dict(state)
+        context = self._shot_context or self.settings
+        state.setdefault("from", language_label(context.source))
+        state.setdefault("to", language_label(context.target))
+        self._shot_state = dict(state)
+        if reveal:
+            self._shot_requested = True
+        window = self._shot_window
+        if window is None or not self._shot_requested or not self._shot_ready:
+            return
+        gen = self._gen
+
+        def apply():
+            if gen != self._gen or not self._shot_requested or self._hold_show:
+                return
+            if reveal:
+                from System.Drawing import Point, Size
+                from .platform_win import cursor_pos, work_area_at
+
+                native = window.native
+                scale = float(native._scale) or 1.0
+                x, y, width, height = self._last_shot.selection.rect
+                left, top, right, bottom = work_area_at(*cursor_pos())
+                w = min(right - left, max(round(320 * scale), width + round(76 * scale)))
+                h = min(bottom - top, max(round(240 * scale), height + round(156 * scale)))
+                native.ClientSize = Size(w, h)
+                native.Location = Point(max(left, min(x - round(38 * scale), right - w)), max(top, min(y - round(74 * scale), bottom - h)))
+                window._intext_keep_hidden = False
+                self._show_native(window)
+            control = self._webview_control(window)
+            if control is not None:
+                control.ExecuteScriptAsync(_apply_script("window.intextShot.apply", state, "shot"))
+
+        self._on_ui(window, apply)
 
     def _recognizing_state(self) -> dict:
         state = self._base_state("")
@@ -308,6 +463,8 @@ class App:
         _boot("capture-cancel" if text is None and quiet_cancel else f"captured {len(text or '')}")
         if text is None and quiet_cancel:
             return False
+        self._last_shot = None
+        self.hide_shot()
         if quiet_cancel:
             self._gen += 1
             gen = self._gen
@@ -517,6 +674,8 @@ class App:
                 self._popup_hwnd = hwnd
                 self._popup_shown_at = time.monotonic()
                 self._arm_popup_blur(native)
+            elif window is self._shot_window:
+                self._shot_hwnd = hwnd
             from .platform_win import foreground
 
             foreground(hwnd)
@@ -647,6 +806,14 @@ class App:
         self._on_ui(window, apply)
 
     def retry(self) -> None:
+        if self._last_shot is not None:
+            settings = deepcopy(self.settings)
+            settings.shot_input = self._shot_context.shot_input
+            settings.shot_display = self._shot_context.shot_display
+            self._shot_context = settings
+            self._gen += 1
+            self._start_shot(self._gen, settings, use_cache=False)
+            return
         if not self._last_text:
             return
         self._gen += 1
@@ -660,6 +827,8 @@ class App:
         ).start()
 
     def open_input(self) -> None:
+        self._last_shot = None
+        self.hide_shot()
         self._gen += 1
         self._last_text = ""
         state = self._base_state("")
@@ -686,6 +855,8 @@ class App:
             state = self._base_state("")
             state.update(mode="input", status="输入翻译")
             self._push(state, enter=False)
+        elif self._last_shot is not None:
+            self.retry()
         elif self._last_text:
             self._gen += 1
             gen = self._gen
@@ -828,6 +999,7 @@ class App:
             )
             save_settings(settings)
         self._sync_languages()
+        self._last_shot = None
         self._last_text = result
         self._gen += 1
         gen = self._gen
@@ -843,6 +1015,8 @@ class App:
             self.settings.api_key = str(payload.get("apiKey") or payload.get("api_key") or "").strip()
             self.settings.source = str(payload.get("source") or "auto")
             self.settings.target = str(payload.get("target") or "zh")
+            self.settings.shot_input = "image" if payload.get("shotInput", payload.get("shot_input", self.settings.shot_input)) == "image" else "ocr"
+            self.settings.shot_display = "overlay" if payload.get("shotDisplay", payload.get("shot_display", self.settings.shot_display)) == "overlay" else "popup"
             incoming = payload.get("fields") or {}
             if isinstance(incoming, dict):
                 from .fields import normalize_field_state
@@ -942,6 +1116,8 @@ class App:
         return {
             "hotkey": self.settings.hotkey,
             "shotHotkey": self.settings.shot_hotkey,
+            "shotInput": self.settings.shot_input,
+            "shotDisplay": self.settings.shot_display,
             "hotkeyError": errors.get("hotkeyError", ""),
             "shotHotkeyError": errors.get("shotHotkeyError", ""),
         }
@@ -1174,7 +1350,7 @@ class App:
             if native is not None:
                 native.Icon = Icon(path)
 
-        for window in (self._popup, self._settings_window, self._tray_menu):
+        for window in (self._popup, self._settings_window, self._tray_menu, self._shot_window):
             self._on_ui(window, lambda window=window: apply(window))
 
     def quit(self) -> None:
@@ -1188,7 +1364,7 @@ class App:
             if shell is not None:
                 shell.stop()
         # Close auxiliary views before the master view ends the UI loop.
-        for window in (self._tray_menu, self._settings_window, self._popup):
+        for window in (self._shot_window, self._tray_menu, self._settings_window, self._popup):
             if window is None:
                 continue
 
@@ -1367,6 +1543,44 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
         def mark_ready(self, kind):
             app.mark_ready(kind)
 
+    class ShotApi:
+        def hide(self):
+            app.hide_shot()
+
+        def retry(self):
+            app.retry()
+
+        def copy_text(self, text):
+            return app.copy_text(text)
+
+        def open_settings(self):
+            app.open_settings()
+
+        def begin_drag(self):
+            app.begin_drag(app._shot_window)
+
+        def begin_resize(self, edge):
+            from .platform_win import begin_form_resize
+
+            app._on_ui(app._shot_window, lambda: begin_form_resize(app._shot_window.native, str(edge), minimum=(320, 240)))
+
+        def end_resize(self):
+            from .platform_win import end_form_resize
+
+            app._on_ui(app._shot_window, lambda: end_form_resize(app._shot_window.native))
+
+        def mark_ready(self, kind=""):
+            if app._shot_ready:
+                return
+            app._shot_ready = True
+
+            def prepare():
+                app._prepare_tool_window(app._shot_window, (640, 440))
+                if app._shot_requested and app._shot_state:
+                    app._push_shot(app._shot_state, reveal=True)
+
+            app._on_ui(app._shot_window, prepare)
+
     icon = str(app.icon_path())
     app._popup = webview.create_window(
         "Intext",
@@ -1416,6 +1630,21 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
         shadow=False, resizable=False, hidden=True, background_color="#F7F4EF",
     )
     app._tray_menu._intext_keep_hidden = True
+    app._shot_window = webview.create_window(
+        "Intext screenshot", url=(assets / "shot-overlay.html").as_uri(), js_api=ShotApi(),
+        width=640, height=440, min_size=(320, 240),
+        frameless=True, transparent=True, shadow=False, on_top=True, easy_drag=False, resizable=True, hidden=True,
+        background_color="#F7F4EF", text_select=True,
+    )
+    app._shot_window._intext_keep_hidden = True
+
+    def keep_shot():
+        if app._quitting:
+            return True
+        app.hide_shot()
+        return False
+
+    app._shot_window.events.closing += keep_shot
 
     def tray_loaded() -> None:
         def prepare() -> None:
@@ -1431,7 +1660,7 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
         app._on_ui(app._tray_menu, prepare)
 
     app._tray_menu.events.loaded += tray_loaded
-    for window in (app._popup, app._settings_window, app._tray_menu):
+    for window in (app._popup, app._settings_window, app._tray_menu, app._shot_window):
         window.events.before_show += lambda *_, window=window: app._sync_taskbar(window, False)
     app._popup.events.loaded += _on_popup_loaded(app, preview)
     app._settings_window.events.shown += lambda *_: app._shape_settings()
@@ -1515,7 +1744,7 @@ def _apply_icons(app: App, icon: str) -> None:
         if native is not None:
             native.Icon = Icon(icon)
 
-    for window in (app._popup, app._settings_window, app._tray_menu):
+    for window in (app._popup, app._settings_window, app._tray_menu, app._shot_window):
         app._on_ui(window, lambda window=window: apply(window))
 
 

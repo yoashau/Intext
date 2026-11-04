@@ -31,6 +31,76 @@ class AppTests(unittest.TestCase):
         self.app._sync_taskbar = lambda *_: None
         self.app._place = lambda *_: self.calls.append("move")
 
+    def test_multimodal_popup_retains_the_image_and_translates_without_local_ocr(self):
+        from intext.screenshot import Screenshot, Selection
+
+        shot = Screenshot(b"png", Selection((10, 20, 100, 80), ()))
+        settings = Settings(model="vision", shot_input="image")
+        self.app._last_shot = shot
+        self.app._popup_requested = True
+        provider = SimpleNamespace(model="vision", source="auto", target="zh", endpoint="test", optional_fields={}, complete=lambda _: "# 译文")
+        with patch("intext.app.OpenAICompatibleProvider", return_value=provider), patch("intext.ocr.recognize") as ocr:
+            self.app._finish_shot(shot, 0, settings)
+        ocr.assert_not_called()
+        self.assertEqual(self.app._popup_state["result"], "# 译文")
+        self.assertEqual(self.app._popup_state["image"], shot.data_url)
+
+    def test_screenshot_retry_retains_capture_modes_and_uses_current_model(self):
+        from intext.screenshot import Screenshot, Selection
+
+        self.app._last_shot = Screenshot(b"png", Selection((0, 0, 100, 80), ()))
+        self.app._shot_context = Settings(model="old", shot_input="image", shot_display="overlay")
+        self.app.settings.model = "new"
+        with patch.object(self.app, "_start_shot") as start:
+            self.app.retry()
+        settings = start.call_args.args[1]
+        self.assertEqual((settings.model, settings.shot_input, settings.shot_display), ("new", "image", "overlay"))
+        self.assertFalse(start.call_args.kwargs["use_cache"])
+
+    def test_ocr_popup_populates_the_selection_cache_fast_path(self):
+        from intext.providers import OpenAICompatibleProvider
+        from intext.screenshot import OcrPage, Screenshot, Selection, TextRegion
+        from intext.shot_translate import translate_shot
+
+        http = Mock()
+        http.post_json.return_value = {"choices": [{"message": {"content": "共用译文"}}]}
+        settings = self.app.settings
+        provider = OpenAICompatibleProvider(endpoint=settings.endpoint, api_key="", model=settings.model,
+            source=settings.source, target=settings.target, http=http)
+        page = OcrPage((TextRegion(0, "hello", ((0, 0), (90, 0), (90, 20), (0, 20))),))
+        translate_shot(Screenshot(b"png", Selection((0, 0, 100, 30), ())), provider=provider,
+                       cache=self.app.cache, input_mode="ocr", display="popup", page=page)
+        self.assertEqual(self.app._cached("hello"), Translation("共用译文", True, settings.model))
+
+    def test_stale_screenshot_does_not_start_recognition_or_a_model_request(self):
+        with patch("intext.ocr.recognize") as ocr, patch("intext.app.OpenAICompatibleProvider") as provider:
+            self.app._gen = 2
+            self.app._finish_shot(None, 1, Settings())
+        ocr.assert_not_called()
+        provider.assert_not_called()
+
+    def test_closed_overlay_is_not_reopened_when_a_result_arrives(self):
+        self.app._shot_ready = True
+        self.app._shot_window = SimpleNamespace(native=SimpleNamespace(Visible=False))
+        self.app.hide_shot()
+        self.calls.clear()
+        self.app._push_shot({"seq": 0, "text": "finished", "busy": False})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.app._shot_state["text"], "finished")
+
+    def test_cancelled_screenshot_keeps_the_previous_generation_and_capture(self):
+        import sys
+
+        previous = object()
+        self.app._last_shot = previous
+        platform = SimpleNamespace(hide_owned_window=lambda _: None, window_visible=lambda _: False)
+        capture = SimpleNamespace(capture_shot=lambda: None)
+        with patch.dict(sys.modules, {"intext.platform_win": platform, "intext.capture_win": capture}):
+            self.app.on_shot()
+        self.assertEqual(self.app._gen, 0)
+        self.assertIs(self.app._last_shot, previous)
+        self.assertFalse(self.app._selecting.locked())
+
     def test_result_update_does_not_move_or_activate_popup(self):
         self.app._push(self.app._pending_state("hello"), enter=True)
         self.calls.clear()

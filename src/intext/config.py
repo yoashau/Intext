@@ -20,6 +20,8 @@ class Settings:
     fields: dict = field(default_factory=default_field_state)
     hotkey: str = "ctrl+alt+q"
     shot_hotkey: str = "ctrl+alt+e"
+    shot_input: str = "ocr"
+    shot_display: str = "popup"
     window_width: int = 0
     window_height: int = 0
     pinned: bool = False
@@ -34,6 +36,8 @@ class Settings:
             "fields": self.fields,
             "hotkey": self.hotkey,
             "shot_hotkey": self.shot_hotkey,
+            "shot_input": self.shot_input,
+            "shot_display": self.shot_display,
             "pinned": bool(self.pinned),
         }
         if self.window_width > 0 and self.window_height > 0:
@@ -95,6 +99,8 @@ def load_settings(path: Path | None = None) -> Settings:
         fields=normalize_field_state(raw.get("fields")),
         hotkey=_saved_hotkey(raw.get("hotkey"), Settings.hotkey),
         shot_hotkey=_saved_hotkey(raw.get("shot_hotkey"), Settings.shot_hotkey),
+        shot_input="image" if raw.get("shot_input") == "image" else "ocr",
+        shot_display="overlay" if raw.get("shot_display") == "overlay" else "popup",
         window_width=_positive(raw.get("window_width")),
         window_height=_positive(raw.get("window_height")),
         pinned=bool(raw.get("pinned")),
