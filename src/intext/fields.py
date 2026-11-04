@@ -24,7 +24,7 @@ class FieldSpec:
 SPECS: tuple[FieldSpec, ...] = (
     FieldSpec("temperature", "温度", "number", "部分模型不接受。", "1"),
     FieldSpec("top_p", "top_p", "number", "通常与温度只开一个。", "1"),
-    FieldSpec("max_tokens", "最大长度", "number", "不启用则由模型决定。", "1024"),
+    FieldSpec("max_tokens", "最大长度", "number", "启用时填写正整数，不启用则由模型决定。", "1024"),
     FieldSpec(
         "reasoning_effort",
         "思考强度",
@@ -77,6 +77,8 @@ def coerce_value(spec: FieldSpec, raw: str) -> object | None:
             return None
         number = float(text)
         if not math.isfinite(number):
+            return None
+        if spec.key == "max_tokens" and (number <= 0 or not number.is_integer()):
             return None
         if number.is_integer():
             return int(number)

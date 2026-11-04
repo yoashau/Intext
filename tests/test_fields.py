@@ -7,6 +7,12 @@ from intext.translate import TranslationError, build_chat_body, cache_key, extra
 
 
 class FieldPayloadTest(unittest.TestCase):
+    def test_max_tokens_requires_a_positive_integer(self):
+        for value in ("0", "-1", "1.5", "nan", ""):
+            with self.subTest(value=value):
+                self.assertNotIn("max_tokens", enabled_payload({"max_tokens": {"enabled": True, "value": value}}))
+        self.assertEqual(enabled_payload({"max_tokens": {"enabled": True, "value": "1e3"}}), {"max_tokens": 1000})
+
     def test_disabled_fields_are_omitted(self):
         fields = {
             "temperature": {"enabled": False, "value": "0.2"},

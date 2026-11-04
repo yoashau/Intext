@@ -1,5 +1,29 @@
 /* One tooltip surface for help text and action labels on both pages. */
 (function () {
+  window.intextControls = {
+    languageArrow(bidirectional = false) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 20 20");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("translation-arrow");
+      // Both directions use the same softly rounded arrowhead.
+      const path = "M3.5 10h12.3M13.5 7.5l2.15 2.15q.35.35 0 .7L13.5 12.5";
+      for (let index = 0; index < (bidirectional ? 2 : 1); index++) {
+        const stroke = document.createElementNS(svg.namespaceURI, "path");
+        stroke.setAttribute("d", path);
+        if (bidirectional) stroke.setAttribute("transform", index ? "translate(0 3.5) rotate(180 10 10)" : "translate(0 -3.5)");
+        svg.append(stroke);
+      }
+      return svg;
+    },
+    moveFocus(anchor, backward) {
+      const items = Array.from(document.querySelectorAll("button, input, textarea, select, a[href], [tabindex]"))
+        .filter(node => node.tabIndex >= 0 && !node.disabled && node.getClientRects().length && getComputedStyle(node).visibility !== "hidden");
+      const index = items.indexOf(anchor);
+      const next = items[(index + (backward ? -1 : 1) + items.length) % items.length];
+      if (next) next.focus();
+    }
+  };
   const tooltip = document.createElement("div");
   tooltip.id = "tooltip";
   tooltip.className = "tooltip";
@@ -88,7 +112,13 @@
     if (event.target.closest(".help")) event.preventDefault();
   });
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") { hide(); return; }
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape" && !tooltip.hidden) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hide();
+      return;
+    }
     if (tooltip.hidden || !tooltip.classList.contains("is-scrollable") || document.activeElement !== owner) return;
     const steps = { ArrowDown: 32, ArrowUp: -32, PageDown: tooltip.clientHeight - 24, PageUp: 24 - tooltip.clientHeight };
     if (Object.hasOwn(steps, event.key)) {
@@ -99,4 +129,12 @@
   document.addEventListener("scroll", function (event) { if (event.target !== tooltip) hide(); }, true);
   window.addEventListener("blur", hide);
   window.addEventListener("resize", hide);
+  new MutationObserver(function () {
+    if (!owner) return;
+    const source = owner.querySelector(".tip");
+    const text = source ? source.textContent.trim() : owner.dataset.tooltip;
+    if (!owner.isConnected || owner.disabled || !owner.getClientRects().length || !text ||
+        (!tooltip.hidden && text !== tooltip.textContent)) hide();
+  }).observe(document.body, { subtree: true, childList: true, characterData: true,
+    attributes: true, attributeFilter: ["hidden", "disabled", "data-tooltip"] });
 })();

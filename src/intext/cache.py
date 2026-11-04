@@ -13,6 +13,8 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Callable
 
+from .config import log_error
+
 
 class LoadingCache:
     """Share pending work; an explicit refresh supersedes older cache writes."""
@@ -113,7 +115,7 @@ class SqliteCache(LoadingCache):
         return None if row is None else row[0]
 
     def put(self, key: str, value: str) -> None:
-        with self._lock:
+        with self._lock, self._db:
             self._db.execute(
                 """
                 INSERT INTO translations(key, result, created)
@@ -137,7 +139,6 @@ class SqliteCache(LoadingCache):
                 """,
                 (key, key, max(0, self._limit - 1)),
             )
-            self._db.commit()
 
     def close(self) -> None:
         with self._lock:
@@ -154,11 +155,18 @@ class TieredCache(LoadingCache):
         hit = self.memory.get(key)
         if hit is not None:
             return hit
-        hit = self.disk.get(key)
+        try:
+            hit = self.disk.get(key)
+        except sqlite3.Error as exc:
+            log_error(f"cache read failed: {exc}")
+            return None
         if hit is not None:
             self.memory.put(key, hit)
         return hit
 
     def put(self, key: str, value: str) -> None:
         self.memory.put(key, value)
-        self.disk.put(key, value)
+        try:
+            self.disk.put(key, value)
+        except sqlite3.Error as exc:
+            log_error(f"cache write failed: {exc}")

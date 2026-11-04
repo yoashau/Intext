@@ -1,6 +1,8 @@
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from intext.cache import MemoryCache, SqliteCache, TieredCache
 from intext.translate import Translation, Translator
@@ -16,6 +18,38 @@ class FakeProvider:
 
 
 class CacheTest(unittest.TestCase):
+    def test_readonly_disk_cache_does_not_discard_a_successful_translation(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        disk = SqliteCache(Path(folder.name) / "cache.sqlite")
+        self.addCleanup(disk.close)
+        with patch("intext.cache.log_error") as log:
+            disk._db.execute("PRAGMA query_only=ON")
+            cache = TieredCache(MemoryCache(), disk)
+            provider = FakeProvider()
+            translator = Translator(provider, cache, source="en", target="zh", endpoint="test", model="test")
+            first = translator.translate("hello")
+            self.assertEqual(first.text, "译文:hello")
+            self.assertFalse(first.cached)
+            self.assertTrue(translator.translate("hello").cached)
+            self.assertEqual(provider.calls, 1)
+            self.assertFalse(disk._db.in_transaction)
+            log.assert_called_once()
+            disk._db.execute("PRAGMA query_only=OFF")
+            cache.put("recovered", "正常缓存")
+            self.assertEqual(disk.get("recovered"), "正常缓存")
+
+    def test_unavailable_disk_reads_fall_back_to_the_provider(self):
+        disk = Mock()
+        disk.get.side_effect = sqlite3.OperationalError("database is locked")
+        cache = TieredCache(MemoryCache(), disk)
+        provider = FakeProvider()
+        translator = Translator(provider, cache, source="en", target="zh", endpoint="test", model="test")
+        with patch("intext.cache.log_error"):
+            self.assertEqual(translator.translate("hello").text, "译文:hello")
+        self.assertTrue(translator.translate("hello").cached)
+        self.assertEqual(provider.calls, 1)
+
     def test_memory_evicts_oldest(self):
         cache = MemoryCache(limit=2)
         cache.put("a", "1")

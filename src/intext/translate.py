@@ -144,9 +144,12 @@ def extract_chat_text(payload: object) -> str:
     if not isinstance(payload, dict):
         raise TranslationError("模型返回的内容无法读取")
     try:
-        content = payload["choices"][0]["message"]["content"]
+        choice = payload["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise TranslationError("模型返回的内容无法读取") from exc
+    if choice.get("finish_reason") == "length":
+        raise TranslationError("译文未完成：已达到输出长度限制。请提高最大长度或关闭该参数后再译。")
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:

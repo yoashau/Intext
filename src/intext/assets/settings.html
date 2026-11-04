@@ -211,6 +211,11 @@
       stroke-linejoin: round;
     }
     .stash { margin-left: auto; }
+    [hidden] { display: none !important; }
+    .save-error { margin-left: auto; width: 28px; height: 28px; border-radius: 8px; color: var(--warning-ink); }
+    .save-error:hover { background: var(--control-hover); }
+    .save-error:not([hidden]) + .stash { margin-left: 2px; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .switch {
       position: relative;
       display: inline-flex;
@@ -351,7 +356,7 @@
       letter-spacing: 0;
       color: var(--warning-ink);
     }
-    .keycap.is-on { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
+    .keycap.is-on { background: var(--control-selected); box-shadow: none; }
     .keycap.is-bad {
       justify-content: space-between;
       background: light-dark(rgba(168, 72, 48, 0.08), rgba(240, 160, 140, 0.1));
@@ -366,16 +371,12 @@
       box-shadow: inset 0 0 0 1px var(--field-hover-border);
     }
     .keycap:active { background: var(--control-pressed); }
-    .line.is-invalid input, .line.is-invalid .menu-btn {
+    .line.is-invalid input, .line.is-invalid .menu-btn, #endpoint[aria-invalid="true"] {
       background: light-dark(rgba(168, 72, 48, 0.055), rgba(240, 160, 140, 0.07));
       box-shadow: inset 0 0 0 1px light-dark(rgba(156, 64, 48, 0.34), rgba(240, 178, 164, 0.38));
     }
-    :root .combo:has(:focus-visible) {
-      outline: 1.5px solid var(--focus-ring);
-      outline-offset: 0;
-      border-radius: 9px;
-    }
-    :root .combo :focus-visible { outline: none; }
+    :root .combo:has(:focus-visible) input.value { background: var(--field-focus-fill); }
+    :root .combo .menu-btn:focus-visible { background: transparent; }
     .line .combo input.value { width: 100%; padding-left: 26px; padding-right: 8px; }
     .line .combo .menu-btn {
       position: absolute;
@@ -426,6 +427,7 @@
         <img src="mark.png" alt="" draggable="false" width="28" height="28">
       </picture>
       <h1 class="wordmark" lang="en">Intext</h1>
+      <button type="button" class="save-error" id="save-error" hidden aria-label="保存失败，点击重试" data-tooltip="设置未能保存，点击重试。">!</button>
       <button type="button" class="stash window-dot" id="stash" aria-label="收到托盘" data-tooltip="收到托盘">
       </button>
     </div>
@@ -435,11 +437,11 @@
         <input id="model" type="text" spellcheck="false">
       </div>
       <div>
-        <span class="name">接口<button type="button" class="help" aria-label="接口说明">?<span class="tip">完整的 chat completions 地址。</span></button></span>
+        <span class="name"><label for="endpoint">接口</label><button type="button" class="help" aria-label="接口说明">?<span class="tip" id="endpoint-tip">完整的 chat completions 地址。</span></button></span>
         <input id="endpoint" type="text" spellcheck="false">
       </div>
       <div>
-        <span class="name">密钥<button type="button" class="help" aria-label="密钥说明">?<span class="tip">只留在本机，不会进入请求。</span></button></span>
+        <span class="name"><label for="api-key">密钥</label><button type="button" class="help" aria-label="密钥说明">?<span class="tip">保存在本机，请求时作为认证信息发送到所填接口；不显示在下方 JSON。</span></button></span>
         <input id="api-key" type="password" autocomplete="off" spellcheck="false">
       </div>
       <div class="pair">
@@ -481,6 +483,7 @@
     </div>
     <pre class="code" id="live" tabindex="0" role="region" aria-label="请求 JSON" aria-live="polite"><code></code></pre>
   </form>
+  <span class="visually-hidden" id="save-announcement" role="status"></span>
   <script src="scroll.js"></script>
   <script src="controls.js"></script>
   <script src="request-policy.js"></script>
@@ -502,7 +505,7 @@
     const SPECS = [
       { key: "temperature", label: "温度", kind: "number", value: "1", hint: "部分模型不接受。" },
       { key: "top_p", label: "top_p", kind: "number", value: "1", hint: "通常与温度只开一个。" },
-      { key: "max_tokens", label: "最大长度", kind: "number", value: "1024", hint: "不启用则由模型决定。" },
+      { key: "max_tokens", label: "最大长度", kind: "number", value: "1024", hint: "启用时填写正整数，不启用则由模型决定。" },
       { key: "reasoning_effort", label: "思考强度", kind: "combo", value: "medium", options: ["low", "medium", "high"], hint: "可选择预设或输入模型支持的值；不接受就保持关闭。" },
       { key: "frequency_penalty", label: "频率惩罚", kind: "number", value: "0", hint: "降低重复用词。" },
       { key: "presence_penalty", label: "存在惩罚", kind: "number", value: "0", hint: "鼓励新内容。" }
@@ -524,6 +527,16 @@
       fields: Object.fromEntries(SPECS.map((spec) => [spec.key, { enabled: false, value: spec.value }]))
     };
     let saveTimer = 0;
+    let saveQueue = Promise.resolve();
+    let saveVersion = 0;
+    let editVersion = 0;
+
+    function showSaveError(failed) {
+      const button = document.getElementById("save-error");
+      if (!failed && document.activeElement === button) document.getElementById("stash").focus({ preventScroll: true });
+      button.hidden = !failed;
+      document.getElementById("save-announcement").textContent = failed ? "设置保存失败，请重试" : "";
+    }
 
     function languageLabel(code) {
       return LABELS[code] || code;
@@ -547,6 +560,7 @@
         if (!NUMBER_TEXT.test(text)) return null;
         const number = Number(text);
         if (!Number.isFinite(number)) return null;
+        if (spec.key === "max_tokens" && (number <= 0 || !Number.isInteger(number))) return null;
         return Number.isInteger(number) ? number : number;
       }
       return text;
@@ -720,13 +734,24 @@
         delete payload.shotHotkeyShown;
         delete payload.hotkeyError;
         delete payload.shotHotkeyError;
-        const result = bridge.save(payload);
-        if (result && typeof result.then === "function") {
-          result.then(function (value) {
+        const version = ++saveVersion;
+        saveQueue = saveQueue.then(() => bridge.save(payload)).then(function (value) {
+          if (version === saveVersion) {
             adoptHotkeys(value, sentSelect, sentShot, !!fromKeys);
-          });
-        }
+            showSaveError(false);
+          }
+          return true;
+        }).catch(() => { if (version === saveVersion) showSaveError(true); return false; });
+        return saveQueue;
       }
+      showSaveError(true);
+      return Promise.resolve(false);
+    }
+
+    async function saveAndHide() {
+      clearTimeout(saveTimer);
+      const version = saveVersion + 1, edits = editVersion;
+      if (await pushSave() && version === saveVersion && edits === editVersion) api("hide");
     }
 
     let pendingHotkeys = null;
@@ -753,13 +778,29 @@
       if (invalid) visual.setAttribute("aria-invalid", "true");
       else visual.removeAttribute("aria-invalid");
       line.querySelector(".tip").textContent = invalid
-        ? (spec.kind === "number" ? "请输入有效数字。" : "请输入思考强度。") + spec.hint
+        ? (spec.key === "max_tokens" ? "请输入正整数。" : spec.kind === "number" ? "请输入有效数字。" : "请输入思考强度。") + spec.hint
         : spec.hint;
     }
 
+    function paintEndpoint() {
+      const input = document.getElementById("endpoint");
+      const value = input.value.trim();
+      let valid = false;
+      try {
+        const address = new URL(value);
+        valid = /^https?:\/\//i.test(value) && !!address.hostname && !/\s/.test(value);
+      } catch (_) {}
+      if (valid) input.removeAttribute("aria-invalid");
+      else input.setAttribute("aria-invalid", "true");
+      document.getElementById("endpoint-tip").textContent = valid ? "完整的 chat completions 地址。"
+        : value ? "接口地址无效，请填写以 http:// 或 https:// 开头的完整地址。" : "请填写完整的 chat completions 地址。";
+    }
+
     function readControls(debounce) {
+      editVersion++;
       state.model = document.getElementById("model").value;
       state.endpoint = document.getElementById("endpoint").value;
+      paintEndpoint();
       state.apiKey = document.getElementById("api-key").value;
       state.source = document.getElementById("source").value;
       state.target = document.getElementById("target").value;
@@ -816,13 +857,18 @@
         button.setAttribute("aria-haspopup", "listbox");
         button.setAttribute("aria-expanded", "false");
         const label = document.querySelector('label[for="' + select.id + '"]');
+        button.id = select.id + "-button";
         button.setAttribute("aria-label", label ? label.textContent : select.closest(".line").querySelector(".name").firstChild.textContent);
+        button.dataset.label = button.getAttribute("aria-label");
+        button.setAttribute("aria-controls", "menu-" + select.id);
+        if (label) label.htmlFor = button.id;
         button.innerHTML = '<span class="menu-label"></span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.6 6.2 8 9.7 11.4 6.2"/></svg>';
         host.append(button);
         bindMenu(select, button);
       }
       const selected = select.selectedOptions[0];
       button.querySelector(".menu-label").textContent = selected ? selected.textContent : "";
+      button.setAttribute("aria-label", button.dataset.label + (selected ? "：" + selected.textContent : ""));
     }
 
     function bindMenu(select, button) {
@@ -850,7 +896,10 @@
         const items = Array.from(openMenu.querySelectorAll(".menu-opt"));
         const selected = openMenu.querySelector(".is-on");
         const item = event.key === "Home" ? items[0] : event.key === "End" ? items[items.length - 1] : selected || (event.key === "ArrowUp" ? items[items.length - 1] : items[0]);
-        if (item) item.focus({ preventScroll: true });
+        if (item) {
+          item.focus({ preventScroll: true });
+          item.scrollIntoView({ block: "nearest" });
+        }
       });
     }
 
@@ -892,7 +941,7 @@
         pop.hidden = true;
         pop.setAttribute("role", "listbox");
         pop.id = "menu-" + select.id;
-        pop.setAttribute("aria-label", button.getAttribute("aria-label"));
+        pop.setAttribute("aria-label", button.dataset.label || button.getAttribute("aria-label"));
         document.body.append(pop);
         pop.addEventListener("mousedown", function (event) { event.stopPropagation(); });
         pop.addEventListener("click", function (event) { event.stopPropagation(); });
@@ -937,7 +986,11 @@
             next.focus({ preventScroll: true });
             next.scrollIntoView({ block: "nearest" });
           }
-          if (event.key === "Tab") closeMenu();
+          if (event.key === "Tab") {
+            event.preventDefault();
+            closeMenu();
+            window.intextControls.moveFocus(button._comboInput || button, event.shiftKey);
+          }
         });
         pop.append(item);
       });
@@ -1035,7 +1088,7 @@
 
     function apply(next) {
       if (!next) return;
-      state.endpoint = next.endpoint || state.endpoint;
+      if (Object.hasOwn(next, "endpoint")) state.endpoint = String(next.endpoint || "");
       state.apiKey = next.apiKey || next.api_key || "";
       state.model = next.model || "";
       state.source = next.source || "auto";
@@ -1059,6 +1112,7 @@
       });
       document.getElementById("model").value = state.model;
       document.getElementById("endpoint").value = state.endpoint;
+      paintEndpoint();
       document.getElementById("api-key").value = state.apiKey;
       fillSelect("source", SOURCE_OPTIONS, state.source);
       fillSelect("target", TARGET_OPTIONS, state.target);
@@ -1097,11 +1151,8 @@
     document.getElementById("sheet").addEventListener("submit", function (event) { event.preventDefault(); });
     document.getElementById("sheet").addEventListener("input", function () { readControls(true); });
     document.getElementById("sheet").addEventListener("change", function () { readControls(false); });
-    document.getElementById("stash").addEventListener("click", function () {
-      clearTimeout(saveTimer);
-      pushSave();
-      api("hide");
-    });
+    document.getElementById("stash").addEventListener("click", saveAndHide);
+    document.getElementById("save-error").addEventListener("click", function () { clearTimeout(saveTimer); pushSave(); });
     document.getElementById("sheet").addEventListener("scroll", function () {
       const sheet = document.getElementById("sheet");
       sheet.classList.toggle("is-scrolled", sheet.scrollTop > 1);
@@ -1132,15 +1183,31 @@
     }, { capture: true, passive: false });
     document.addEventListener("click", function () { closeMenu(); });
     document.addEventListener("pointerdown", function (event) {
+      if (!openMenu || openMenu.contains(event.target) || menuAnchor.contains(event.target)) return;
+      const thumb = event.target.closest?.(".mac-thumb");
+      if (thumb && thumb._intextScroller === openMenu) return;
+      closeMenu();
+    }, true);
+    document.addEventListener("focusin", function (event) {
+      if (openMenu && !openMenu.contains(event.target) && event.target !== menuAnchor &&
+          event.target !== menuAnchor._comboInput) closeMenu();
+    });
+    document.addEventListener("pointerdown", function (event) {
       if (!recording) return;
       if (event.target.closest("#hotkey-select, #hotkey-shot")) return;
       cancelRecording();
     });
     window.addEventListener("blur", cancelRecording);
+    window.addEventListener("blur", closeMenu);
     document.getElementById("hotkey-select").addEventListener("click", function () { recordKey("hotkey"); });
     document.getElementById("hotkey-shot").addEventListener("click", function () { recordKey("shotHotkey"); });
     document.addEventListener("keydown", function (event) {
+      if (event.isComposing || event.keyCode === 229) return;
       if (recording) {
+        if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+          cancelRecording();
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         if (event.key === "Escape") {
@@ -1207,9 +1274,7 @@
         return;
       }
       if (event.key === "Escape") {
-        clearTimeout(saveTimer);
-        pushSave();
-        api("hide");
+        saveAndHide();
       }
     });
     function applyLanguages(next) {

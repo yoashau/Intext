@@ -19,6 +19,7 @@
     let end=start+opening.length;
     while((end=src.indexOf(closing,end))>=0 && src[end-1]==='\\') end+=closing.length;
     if(end<0 || src.slice(start+opening.length,end).includes('\n')) return false;
+    if(dollar && /\s/.test(src[end-1])) return false;
     if(dollar && /\d/.test(src[end+1] || '')) return false;
     if(!silent){const token=state.push('intext_math','math',0);token.content=src.slice(start+opening.length,end);}
     state.pos=end+closing.length;return true;

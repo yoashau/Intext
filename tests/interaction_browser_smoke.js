@@ -1,0 +1,93 @@
+async (page) => {
+  const base = 'http://127.0.0.1:8768/src/intext/assets/';
+  const report = {};
+  const check = (value, name) => {
+    if (!value) throw new Error(name);
+    report[name] = true;
+  };
+  await page.emulateMedia({colorScheme: 'light', reducedMotion: 'reduce'});
+  await page.setViewportSize({width: 460, height: 312});
+  await page.goto(base + 'popup.html');
+  await page.bringToFront();
+  const copy = await page.evaluate(async () => {
+    const button = document.getElementById('copy');
+    const state = {seq: 1, from: '英语', to: '简体中文', sourceLang: 'en', resultLang: 'zh', source: 'hello', result: '你好', model: 'fixture'};
+    intext.apply(state);
+    window.pywebview = {api: {copy_text: async () => false}};
+    button.click();
+    await Promise.resolve();
+    const failure = button.getAttribute('aria-label') === '复制失败，请重试' && document.getElementById('result').textContent === '你好';
+    window.pywebview.api.copy_text = async () => { throw new Error('clipboard unavailable'); };
+    button.click();
+    await Promise.resolve();
+    const rejected = button.getAttribute('aria-label') === '复制失败，请重试';
+    let resolveCopy;
+    window.pywebview.api.copy_text = () => new Promise(resolve => { resolveCopy = resolve; });
+    button.click();
+    intext.apply({...state, seq: 2, result: '新译文'});
+    resolveCopy(true);
+    await Promise.resolve();
+    const stale = !button.classList.contains('is-copied');
+    window.pywebview.api.copy_text = async () => true;
+    button.click();
+    await Promise.resolve();
+    return {failure, rejected, stale, success: button.getAttribute('aria-label') === '已复制'};
+  });
+  Object.entries(copy).forEach(([key, value]) => check(value, 'copy ' + key));
+  const submission = await page.evaluate(async () => {
+    const input = document.getElementById('input'), button = document.getElementById('submit');
+    intext.apply({seq: 3, mode: 'input', from: '英语', to: '简体中文', status: '输入翻译'});
+    input.value = 'draft to keep';
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    let calls = 0, rejectSubmit;
+    window.pywebview = {api: {submit_text: () => {
+      calls++;
+      return new Promise((_, reject) => { rejectSubmit = reject; });
+    }}};
+    button.click(); button.click();
+    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true}));
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    const pending = calls === 1 && button.disabled && button.textContent === '提交中…';
+    rejectSubmit(new Error('bridge unavailable'));
+    await Promise.resolve();
+    const recovered = !button.disabled && button.textContent === '重试' && input.value === 'draft to keep';
+    window.pywebview.api.submit_text = async () => { calls++; };
+    button.click();
+    await Promise.resolve();
+    return {pending, recovered, retry: calls === 2 && button.textContent === '翻译'};
+  });
+  Object.entries(submission).forEach(([key, value]) => check(value, 'submission ' + key));
+  await page.setViewportSize({width: 400, height: 380});
+  await page.goto(base + 'settings.html');
+  await page.bringToFront();
+  const settings = await page.evaluate(() => {
+    window.pywebview = {api: {save: async () => ({})}};
+    intextSettings.apply({model: 'fixture', source: 'ja', target: 'en'});
+    const source = document.getElementById('source-button'), target = document.getElementById('target-button');
+    const named = source.getAttribute('aria-label') === '原文：日语' && target.getAttribute('aria-label') === '译文：英语';
+    document.getElementById('sheet').scrollTop += source.getBoundingClientRect().top - 160;
+    source.dispatchEvent(new KeyboardEvent('keydown', {key: 'End', bubbles: true, cancelable: true}));
+    const menu = document.getElementById('menu-source');
+    const item = document.activeElement.getBoundingClientRect(), bounds = menu.getBoundingClientRect();
+    const visible = item.top >= bounds.top && item.bottom <= bounds.bottom;
+    const menuName = menu.getAttribute('aria-label') === '原文';
+    target.focus();
+    // Explicit dispatch also supports a background browser tab without native focus events.
+    target.dispatchEvent(new FocusEvent('focusin', {bubbles: true}));
+    const closed = menu.hidden && source.getAttribute('aria-expanded') === 'false';
+    const hotkey = document.getElementById('hotkey-select');
+    hotkey.focus(); hotkey.click();
+    const tab = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true});
+    hotkey.dispatchEvent(tab);
+    const tabReleased = !tab.defaultPrevented && !hotkey.textContent.includes('请按键');
+    const endpoint = document.getElementById('endpoint');
+    endpoint.value = 'api.example.test/v1/chat/completions';
+    endpoint.dispatchEvent(new Event('input', {bubbles: true}));
+    const invalid = endpoint.getAttribute('aria-invalid') === 'true';
+    endpoint.value = 'http://localhost:8080/v1/chat/completions';
+    endpoint.dispatchEvent(new Event('input', {bubbles: true}));
+    return {named, menuName, visible, closed, tabReleased, invalid, local: !endpoint.hasAttribute('aria-invalid')};
+  });
+  Object.entries(settings).forEach(([key, value]) => check(value, 'settings ' + key));
+  return report;
+}

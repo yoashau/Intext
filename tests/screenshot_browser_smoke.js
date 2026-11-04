@@ -14,8 +14,16 @@ async (page) => {
       noExecutableHtml:!window.executed && !result.querySelector('script, iframe, img, a[href]'),rawCopy:copied===raw,
       fits:document.body.scrollWidth===innerWidth};
   });Object.entries(markdown).forEach(([key,value])=>check(value,'Markdown '+key));
+  const popupAppearance=await page.evaluate(()=>{
+    intext.apply({seq:11,from:'英语',to:'简体中文',source:'hello',result:'',status:'正在翻译'});
+    const status=getComputedStyle(document.getElementById('result'));
+    const arrow=document.querySelector('#swap .translation-arrow');
+    return {fontSize:status.fontSize,lineHeight:status.lineHeight,color:status.color,
+      paths:[...arrow.querySelectorAll('path')].map(p=>p.getAttribute('d')),
+      width:getComputedStyle(arrow).width,stroke:getComputedStyle(arrow).strokeWidth};
+  });
   await page.setViewportSize({width:480,height:600});await page.goto(base+'settings.html');
-  const modes=await page.evaluate(()=>{
+  const modes=await page.evaluate(async()=>{
     window.saved=[];window.pywebview={api:{save(value){saved.push(value);return Promise.resolve({});}}};
     intextSettings.apply({model:'vision',source:'en',target:'zh',apiKey:'never-in-preview'});
     const input=document.querySelector('#shot-input'),display=document.querySelector('#shot-display');
@@ -37,6 +45,7 @@ async (page) => {
       input.value=method;display.value=view;input.dispatchEvent(new Event('change',{bubbles:true}));
       bodies.push({method,view,body:intextSettings.body()});
     }
+    await saveQueue;
     return {defaults,belowShortcut:inputBounds.top>=shot.bottom && displayBounds.top>=inputBounds.bottom,
       leftArrows:[...document.querySelectorAll('.choice:not(.combo) > .menu-btn')].every(button=>{
         const arrow=button.querySelector('svg').getBoundingClientRect(), text=button.querySelector('.menu-label').getBoundingClientRect();
@@ -57,6 +66,22 @@ async (page) => {
     const image=document.createElement('canvas');image.width=600;image.height=240;
     const ctx=image.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,600,240);ctx.fillStyle='black';ctx.font='24px sans-serif';ctx.fillText('Original heading',30,50);ctx.fillText('Text in its original location',30,140);
     const calls=[];window.pywebview={api:new Proxy({},{get:(_,key)=>(...args)=>{calls.push([key,...args]);return Promise.resolve(true);}})};
+    intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),from:'英语',to:'简体中文',busy:true,status:'正在识别…'});
+    const recognition=document.getElementById('status').textContent==='正在识别…' && document.getElementById('panel').getAttribute('aria-busy')==='true';
+    intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),from:'英语',to:'简体中文',busy:true,status:'正在翻译…'});
+    const statusStyle=getComputedStyle(document.getElementById('status'));
+    const messageStyle=getComputedStyle(document.getElementById('message'));
+    const statusAppearance={fontSize:statusStyle.fontSize,lineHeight:statusStyle.lineHeight,color:statusStyle.color};
+    const unframed=messageStyle.boxShadow==='none' && messageStyle.borderStyle==='none' && !document.querySelector('.progress-card,.progress-dot');
+    const translating=document.getElementById('status').textContent==='正在翻译…';
+    document.getElementById('original').click();
+    const progressCompare=document.getElementById('message').hidden;
+    document.getElementById('original').click();
+    const progressRestored=!document.getElementById('message').hidden;
+    const arrow=document.querySelector('.direction .translation-arrow');
+    const arrowAppearance={path:arrow.querySelector('path').getAttribute('d'),paths:arrow.querySelectorAll('path').length,width:getComputedStyle(arrow).width,stroke:getComputedStyle(arrow).strokeWidth};
+    intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),busy:false,error:'示例完整错误'});
+    const failure=!document.getElementById('error-help').hidden && document.getElementById('error').textContent==='示例完整错误' && document.getElementById('status').textContent==='翻译失败';
     intextShot.apply({seq:3,width:600,height:240,image:image.toDataURL(),text:'原文标题\n文字留在原处',model:'vision',busy:false,
       blocks:[{text:'原文标题',left:4,top:9,width:50,height:16,fontSize:24,background:'white',color:'black'},
       {text:'文字留在原处',left:4,top:45,width:66,height:16,fontSize:24,background:'white',color:'black'}]});
@@ -73,8 +98,11 @@ async (page) => {
     document.querySelector('#close').click();
     return {positioned:Math.abs((first.left-box.left)/box.width-.04)<.01,
       fitted:[...labels].every(el=>el.scrollHeight<=el.clientHeight+1),compare,sameSize,iconOnly,accessibleToggle,
+      recognition,translating,unframed,failure,progressCompare,progressRestored,completed:document.getElementById('message').hidden,statusAppearance,arrowAppearance,
       copy:calls.some(c=>c[0]==='copy_text' && c[1]==='原文标题\n文字留在原处'),fresh,close:calls.some(c=>c[0]==='hide'),
       fits:document.body.scrollWidth===innerWidth};
   });Object.entries(overlay).forEach(([key,value])=>check(value,'Overlay '+key));
+  check(['fontSize','lineHeight','color'].every(key=>overlay.statusAppearance[key]===popupAppearance[key]),'Shared progress typography');
+  check(popupAppearance.paths.length===2 && popupAppearance.paths.every(path=>path===overlay.arrowAppearance.path) && overlay.arrowAppearance.paths===1 && popupAppearance.width===overlay.arrowAppearance.width && popupAppearance.stroke===overlay.arrowAppearance.stroke,'Shared language arrows');
   return {markdown,modes,overlay};
 }

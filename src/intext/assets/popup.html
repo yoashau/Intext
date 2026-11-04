@@ -89,6 +89,8 @@
       user-select: text; -webkit-user-select: text;
     }
     #input::placeholder { color: var(--text-tertiary); }
+    .input-count { margin-top: 5px; text-align: right; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+    .input-count.is-invalid { color: var(--warning-ink); }
     [hidden] { display: none !important; }
     .iconbtn.submit { color: var(--text-primary); width: auto; padding: 0 10px; flex-shrink: 0; white-space: nowrap; font-size: 13px; background: var(--control-selected); }
     .language-menu {
@@ -159,9 +161,10 @@
     }
     .swap svg { width: 16px; height: 16px; }
     .iconbtn svg { width: 18px; height: 18px; }
-    .iconbtn:enabled:is(:hover, :focus-visible):not(.is-copied),
+    .iconbtn:enabled:is(:hover, :focus-visible):not(.is-copied):not(.is-copy-failed),
     .swap:enabled:is(:hover, :focus-visible) { color: var(--text-primary); }
     .iconbtn.is-copied { color: var(--success-ink); }
+    .iconbtn.is-copy-failed { color: var(--warning-ink); }
     .iconbtn:hover:enabled, .swap:hover:enabled, .lang:hover:enabled { background: var(--control-hover); }
     .model { padding: 4px 6px; margin-right: -6px; border-radius: 6px; }
     .model:hover { background: var(--control-hover); color: var(--text-primary); }
@@ -177,7 +180,7 @@
     @keyframes retry-turn { to { transform: rotate(360deg); } }
     .content { border-radius: 5px; }
     #input { border-radius: 10px; }
-    :root #input:focus-visible { outline-offset: -1.5px; }
+    #input:focus-visible { background: var(--field-focus-fill); }
     .help[hidden] { display: none !important; }
     .help {
       position: relative;
@@ -209,7 +212,6 @@
       <div class="row">
         <button type="button" class="lang" id="from" aria-label="原文语言" aria-haspopup="listbox" aria-expanded="false">英语</button>
         <button type="button" class="swap" id="swap" aria-label="对调语言" data-tooltip="对调语言">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.2h12M12.2 2.9l3.3 3.3-3.3 3.3M16.5 13.8h-12M7.8 10.5l-3.3 3.3 3.3 3.3"/></svg>
         </button>
         <button type="button" class="lang" id="to" aria-label="译文语言" aria-haspopup="listbox" aria-expanded="false">简体中文</button>
         <span class="status-line">
@@ -218,7 +220,8 @@
         </span>
       </div>
       <div class="content" id="content" tabindex="0" role="region" aria-label="原文与译文">
-        <textarea id="input" hidden aria-label="待翻译文字" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
+        <textarea id="input" hidden aria-label="待翻译文字" aria-describedby="input-count" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
+        <div class="input-count" id="input-count" hidden role="status"></div>
         <div class="result" id="result" lang="zh"></div>
         <div class="source" id="source" lang="en"></div>
         <img id="shot-image" class="source-image" alt="所选截图" hidden>
@@ -263,9 +266,48 @@
     const retryButton = document.getElementById("retry");
     const pinButton = document.getElementById("pin");
     const announcement = document.getElementById("announcement");
+    document.getElementById("swap").append(window.intextControls.languageArrow(true));
     const languages = { auto: "自动", zh: "简体中文", en: "英语", ja: "日语", ko: "韩语", fr: "法语", de: "德语", es: "西班牙语", ru: "俄语" };
-    let sourceCode = "auto", targetCode = "zh", inputMode = false;
+    let sourceCode = "auto", targetCode = "zh", inputMode = false, submitting = false;
     let menuAnchor = null;
+
+    function validateInput() {
+      // Count Unicode code points after the same normalization as translate.py.
+      const length = Array.from(input.value.replace(/\r\n?/g, "\n").normalize("NFC").trim()).length;
+      const invalid = length > 8000; // translate.MAX_TEXT_CHARS
+      const counter = document.getElementById("input-count");
+      counter.hidden = !inputMode;
+      counter.textContent = length + " / 8000";
+      counter.classList.toggle("is-invalid", invalid);
+      if (invalid) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+      document.getElementById("submit").disabled = submitting || !length || invalid;
+      return length > 0 && !invalid;
+    }
+
+    async function submitInput() {
+      if (submitting || !validateInput()) return;
+      const seq = appliedSeq;
+      const button = document.getElementById("submit");
+      submitting = true;
+      button.textContent = "提交中…";
+      validateInput();
+      let failed = false;
+      try {
+        const bridge = window.pywebview && window.pywebview.api;
+        if (!bridge || typeof bridge.submit_text !== "function") throw new Error("bridge unavailable");
+        await api("submit_text", input.value);
+      } catch (error) {
+        failed = true;
+      } finally {
+        if (seq === appliedSeq && inputMode) {
+          submitting = false;
+          button.textContent = failed ? "重试" : "翻译";
+          announcement.textContent = failed ? "提交失败，请重试" : "";
+          validateInput();
+        }
+      }
+    }
 
     function closeLanguages() {
       menu.hidden = true;
@@ -285,6 +327,7 @@
         const item = document.createElement("button");
         item.type = "button";
         item.className = "language-option";
+        item.tabIndex = -1;
         const mark = document.createElement("span");
         mark.className = "menu-mark";
         if (code === (kind === "target" ? targetCode : sourceCode)) {
@@ -308,7 +351,11 @@
           if (event.key === "Home") next = items[0];
           if (event.key === "End") next = items[items.length - 1];
           if (next) { event.preventDefault(); next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest" }); }
-          if (event.key === "Tab") closeLanguages();
+          if (event.key === "Tab") {
+            event.preventDefault();
+            closeLanguages();
+            window.intextControls.moveFocus(anchor, event.shiftKey);
+          }
         });
         menu.append(item);
       });
@@ -324,9 +371,19 @@
 
     function resetCopy() {
       clearTimeout(copyTimer);
-      copyButton.classList.remove("is-copied");
+      copyButton.classList.remove("is-copied", "is-copy-failed");
       copyButton.setAttribute("aria-label", "复制");
       copyButton.dataset.tooltip = "复制";
+    }
+
+    function copyFeedback(success) {
+      resetCopy();
+      copyButton.classList.add(success ? "is-copied" : "is-copy-failed");
+      const message = success ? "已复制" : "复制失败，请重试";
+      copyButton.setAttribute("aria-label", message);
+      copyButton.dataset.tooltip = message;
+      announcement.textContent = message;
+      copyTimer = setTimeout(resetCopy, success ? 1400 : 2500);
     }
 
     function syncPin() {
@@ -348,6 +405,8 @@
         targetCode = state.resultLang || "zh";
         const wasInput = inputMode;
         inputMode = state.mode === "input";
+        submitting = false;
+        document.getElementById("submit").textContent = "翻译";
         input.hidden = !inputMode;
         result.hidden = inputMode;
         document.getElementById("source").hidden = inputMode;
@@ -355,10 +414,12 @@
         document.getElementById("copy").hidden = inputMode;
         document.getElementById("submit").hidden = !inputMode;
         if (inputMode && Object.hasOwn(state, "draft")) input.value = state.draft;
-        document.getElementById("submit").disabled = !input.value.trim();
+        validateInput();
         if (inputMode && (!wasInput || state.enter)) input.focus({ preventScroll: true });
         document.getElementById("from").textContent = state.from || "";
         document.getElementById("to").textContent = state.to || "";
+        document.getElementById("from").setAttribute("aria-label", "原文语言：" + (state.from || "自动"));
+        document.getElementById("to").setAttribute("aria-label", "译文语言：" + (state.to || ""));
         window.intextMarkdown.render(document.getElementById("source"), state.source || "");
         const shotImage = document.getElementById('shot-image');
         shotImage.hidden = inputMode || !state.image;
@@ -424,15 +485,8 @@
       const seq = appliedSeq;
       try {
         const copied = await api("copy_text", result.dataset.raw || result.textContent);
-        if (copied && seq === appliedSeq) {
-          resetCopy();
-          copyButton.classList.add("is-copied");
-          copyButton.setAttribute("aria-label", "已复制");
-          copyButton.dataset.tooltip = "已复制";
-          announcement.textContent = "已复制";
-          copyTimer = setTimeout(resetCopy, 1400);
-        }
-      } catch (error) { /* The native bridge reports copy failures in the status. */ }
+        if (seq === appliedSeq) copyFeedback(!!copied);
+      } catch (error) { if (seq === appliedSeq) copyFeedback(false); }
     });
     document.getElementById("pin").addEventListener("click", function () {
       pinned = !pinned;
@@ -446,14 +500,15 @@
     ["from", "to"].forEach(function (id) {
       document.getElementById(id).addEventListener("click", function () { chooseLanguage(id === "from" ? "source" : "target", this); });
     });
-    input.addEventListener("input", function () { document.getElementById("submit").disabled = !input.value.trim(); });
-    document.getElementById("submit").addEventListener("click", function () { api("submit_text", input.value); });
+    input.addEventListener("input", validateInput);
+    document.getElementById("submit").addEventListener("click", submitInput);
     input.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && event.ctrlKey && !event.isComposing && input.value.trim()) {
-        event.preventDefault(); api("submit_text", input.value);
+      if (event.key === "Enter" && event.ctrlKey && !event.isComposing && validateInput()) {
+        event.preventDefault(); submitInput();
       }
     });
     document.addEventListener("keydown", function (event) {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Escape" && !menu.hidden) {
         const anchor = menuAnchor;
         closeLanguages();
@@ -463,9 +518,18 @@
       if (event.key === "Escape") api("hide");
     });
     document.addEventListener("pointerdown", function (event) {
+      if (menu.hidden || menu.contains(event.target) || (menuAnchor && menuAnchor.contains(event.target))) return;
+      const thumb = event.target.closest?.(".mac-thumb");
+      if (thumb && thumb._intextScroller === menu) return;
+      closeLanguages();
+    }, true);
+    document.addEventListener("focusin", function (event) {
+      if (!menu.hidden && !menu.contains(event.target) && event.target !== menuAnchor) closeLanguages();
+    });
+    window.addEventListener("blur", closeLanguages);
+    document.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) return;
       if (event.target.closest("#languages, .mac-thumb")) return;
-      if (!event.target.closest("#from, #to, #swap")) closeLanguages();
       if (pinned || event.target.closest("#panel")) return;
       api("hide");
     });

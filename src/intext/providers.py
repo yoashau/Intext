@@ -6,9 +6,11 @@ that body; it does not invent sampling or reasoning fields.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Protocol
 
@@ -39,8 +41,12 @@ class UrllibClient:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise TranslationError(_http_message(exc.code, detail)) from exc
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")
+            except (OSError, http.client.HTTPException):
+                detail = ""
+            secret = headers.get("Authorization", "").removeprefix("Bearer ")
+            raise TranslationError(_http_message(exc.code, detail, secret=secret)) from exc
         except TimeoutError as exc:
             raise TranslationError("请求超时") from exc
         except urllib.error.URLError as exc:
@@ -80,6 +86,17 @@ class OpenAICompatibleProvider:
         return self.complete(messages_for(text, self.source, self.target))
 
     def complete(self, messages: list[dict]) -> str:
+        if not self.endpoint.strip():
+            raise TranslationError("未配置接口地址，请在设置中填写完整地址。")
+        try:
+            address = urllib.parse.urlsplit(self.endpoint)
+            valid = (address.scheme in {"http", "https"} and bool(address.hostname)
+                     and not any(char.isspace() for char in self.endpoint))
+            address.port  # Validate malformed and out-of-range ports as well.
+        except ValueError:
+            valid = False
+        if not valid:
+            raise TranslationError("接口地址无效，请填写以 http:// 或 https:// 开头的完整地址。")
         body = build_chat_body(
             self.model,
             messages,
@@ -100,7 +117,9 @@ def _redact_secret(detail: str) -> str:
     return re.sub(r"\bsk-[A-Za-z0-9_\-]{8,}", "[redacted]", detail)
 
 
-def _http_message(status: int, detail: str) -> str:
+def _http_message(status: int, detail: str, *, secret: str = "") -> str:
+    if secret:
+        detail = detail.replace(secret, "[redacted]")
     compact = " ".join(_redact_secret(detail).split())
     if len(compact) > 180:
         compact = compact[:180] + "…"

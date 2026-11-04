@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,7 +67,7 @@ def _saved_hotkey(value: object, default: str) -> str:
 def _positive(value: object) -> int:
     try:
         number = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
     return number if number > 0 else 0
 
@@ -78,8 +79,8 @@ def load_settings(path: Path | None = None) -> Settings:
         save_settings(settings, path)
         return settings
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         log_error(f"config unreadable: {exc}")
         backup = path.with_name("config.json.bak")
         try:
@@ -91,7 +92,7 @@ def load_settings(path: Path | None = None) -> Settings:
     if not isinstance(raw, dict):
         return Settings()
     settings = Settings(
-        endpoint=str(raw.get("endpoint") or Settings.endpoint),
+        endpoint=str(raw.get("endpoint", Settings.endpoint) or ""),
         api_key=str(raw.get("api_key") or ""),
         model=str(raw.get("model") or ""),
         source=str(raw.get("source") or "auto"),
@@ -113,10 +114,19 @@ def load_settings(path: Path | None = None) -> Settings:
 def save_settings(settings: Settings, path: Path | None = None) -> None:
     path = path or config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(settings.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    content = json.dumps(settings.to_dict(), ensure_ascii=False, indent=2) + "\n"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def log_error(message: str) -> None:

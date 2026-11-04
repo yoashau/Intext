@@ -30,6 +30,7 @@
     const x = document.createElement("div");
     y.className = "mac-thumb";
     x.className = "mac-thumb";
+    y._intextScroller = x._intextScroller = scroller;
     y.setAttribute("aria-hidden", "true");
     x.setAttribute("aria-hidden", "true");
     const layer = String((options && options.layer) || 40);

@@ -11,6 +11,46 @@ from intext.translate import Translation
 
 
 class AppTests(unittest.TestCase):
+    def test_clearing_endpoint_does_not_keep_using_the_previous_service(self):
+        self.app.settings.endpoint = "https://previous.example.test/v1/chat/completions"
+        with patch.object(self.app, "_take_hotkeys", return_value={}):
+            self.app.save_settings({"model": "m", "endpoint": ""})
+        self.assertEqual(self.app.settings.endpoint, "")
+        self.assertEqual(load_settings().endpoint, "")
+
+    def test_selection_finishing_after_open_input_cannot_retire_the_new_view(self):
+        def old_selection():
+            self.app.open_input()
+            return "old selection"
+
+        with patch("intext.app.threading.Thread") as worker:
+            self.assertFalse(self.app._capture(old_selection))
+        worker.assert_not_called()
+        self.assertEqual(self.app._gen, 2)
+        self.assertEqual(self.app._popup_state["mode"], "input")
+        self.assertEqual(self.app._last_text, "")
+
+    def test_cache_lookup_finishing_after_open_input_cannot_replace_the_new_view(self):
+        def old_cache(_text):
+            self.app.open_input()
+            return Translation("old result", True, "m")
+
+        with patch.object(self.app, "_cached", side_effect=old_cache), patch("intext.app.threading.Thread") as worker:
+            self.assertFalse(self.app._capture(lambda: "old selection"))
+        worker.assert_not_called()
+        self.assertEqual(self.app._popup_state["mode"], "input")
+        self.assertEqual(self.app._last_text, "")
+
+    def test_shot_clipboard_failure_does_not_update_the_text_popup(self):
+        import sys
+
+        platform = SimpleNamespace(set_clipboard_text=lambda _: False)
+        with patch.dict(sys.modules, {"intext.platform_win": platform}), patch.object(self.app, "_push") as push:
+            self.assertFalse(self.app.copy_text("译文", report_failure=False))
+            push.assert_not_called()
+            self.assertFalse(self.app.copy_text("译文"))
+            self.assertEqual(push.call_args.args[0]["status"], "复制失败")
+
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)

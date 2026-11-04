@@ -457,6 +457,8 @@ class App:
                 text = None
         finally:
             self._selecting.release()
+        if gen != self._gen:
+            return False
         # A cancelled shot must keep holding until on_shot drops queued shows.
         if not (text is None and quiet_cancel):
             self._hold_show = False
@@ -470,22 +472,23 @@ class App:
             gen = self._gen
         if not text:
             self._last_text = ""
-            self._push(self._error_state("", "未识别到文字"), enter=True)
+            self._push(dict(self._error_state("", "未识别到文字"), seq=gen), enter=True)
             return True
         self._last_text = text
-        self._gen = gen
         if not self.settings.model:
-            self._push(self._error_state(text, "未配置"), enter=not self._pinned)
+            self._push(dict(self._error_state(text, "未配置"), seq=gen), enter=not self._pinned)
             return True
         try:
             cached = self._cached(text)
         except TranslationError as exc:
-            self._push(self._error_state(text, str(exc)), enter=True)
+            self._push(dict(self._error_state(text, str(exc)), seq=gen), enter=True)
             return True
+        if gen != self._gen:
+            return False
         if cached is not None:
-            self._push(self._result_state(text, cached.text, True), enter=not self._pinned)
+            self._push(dict(self._result_state(text, cached.text, True), seq=gen), enter=not self._pinned)
             return True
-        self._push(self._pending_state(text), enter=not self._pinned)
+        self._push(dict(self._pending_state(text), seq=gen), enter=not self._pinned)
         threading.Thread(target=self._finish, args=(text, gen), daemon=True).start()
         return True
 
@@ -832,7 +835,8 @@ class App:
         self._gen += 1
         self._last_text = ""
         state = self._base_state("")
-        state.update(mode="input", draft="", status="输入翻译")
+        # The page retains its manual draft while hidden or showing results.
+        state.update(mode="input", status="输入翻译")
         self._push(state, enter=not self._pinned)
 
     def submit_text(self, text: str) -> None:
@@ -873,7 +877,7 @@ class App:
                 "languages",
             )
 
-    def copy_text(self, text: str) -> bool:
+    def copy_text(self, text: str, *, report_failure: bool = True) -> bool:
         from .platform_win import set_clipboard_text
 
         if not (text or "").strip():
@@ -885,6 +889,8 @@ class App:
             log_error(traceback.format_exc())
         if ok:
             return True
+        if not report_failure:
+            return False
         state = dict(self._popup_state or self._base_state(self._last_text))
         state["status"] = "复制失败"
         self._push(state, enter=False, reveal=False)
@@ -1011,7 +1017,7 @@ class App:
             return
         with self._settings_lock:
             self.settings.model = str(payload.get("model") or "").strip()
-            self.settings.endpoint = str(payload.get("endpoint") or self.settings.endpoint).strip()
+            self.settings.endpoint = str(payload.get("endpoint", self.settings.endpoint) or "").strip()
             self.settings.api_key = str(payload.get("apiKey") or payload.get("api_key") or "").strip()
             self.settings.source = str(payload.get("source") or "auto")
             self.settings.target = str(payload.get("target") or "zh")
@@ -1551,7 +1557,7 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
             app.retry()
 
         def copy_text(self, text):
-            return app.copy_text(text)
+            return app.copy_text(text, report_failure=False)
 
         def open_settings(self):
             app.open_settings()
