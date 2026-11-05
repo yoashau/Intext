@@ -81,11 +81,25 @@ def main() -> int:
                 if file == 'tray-menu.html':
                     view.evaluate_js('intextTray.open({startup:false});document.querySelector(\'[data-action="startup"]\').dataset.tooltip="tray help"')
                 target = 'document.querySelector(' + json.dumps(selector) + ')'
-                view.evaluate_js(target + '.focus()')
-                check(hidden(view), file + ' programmatic focus stays quiet')
                 rect = view.evaluate_js('JSON.stringify((()=>{const r=' + target + '.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})())')
                 if isinstance(rect, str):
                     rect = json.loads(rect)
+                # The native window can be visible before WebView receives
+                # keyboard focus. A real hover must still work immediately.
+                ui(lambda: background.Activate())
+                time.sleep(.1)
+                check(not view.evaluate_js('document.hasFocus()'), file + ' hover starts without WebView focus')
+                protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+                protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **rect})
+                # A visible transition arriving after pointerover must not
+                # cancel the user's pending hover.
+                view.evaluate_js('document.dispatchEvent(new Event("visibilitychange"))')
+                time.sleep(.4)
+                check(not hidden(view), file + ' unfocused early hover shows help')
+                protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+                ui(lambda: app._show_native(view))
+                view.evaluate_js(target + '.focus()')
+                check(hidden(view), file + ' programmatic focus stays quiet')
                 protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **rect})
                 time.sleep(.4)
                 check(not hidden(view), file + ' pointer hover shows help')

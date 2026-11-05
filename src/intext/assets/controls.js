@@ -57,7 +57,7 @@
 
   function show(button) {
     if (owner !== button || !button.isConnected || button.disabled ||
-        !document.hasFocus() || document.visibilityState === "hidden") return;
+        document.visibilityState === "hidden") return;
     const source = button.querySelector(".tip");
     const text = source ? source.textContent.trim() : button.dataset.tooltip;
     if (!text) { hide(); return; }
@@ -106,7 +106,7 @@
   });
   document.addEventListener("focusin", function (event) {
     const button = target(event);
-    if (!button || !keyboardNavigation || !button.matches(":focus-visible")) return;
+    if (!button || !keyboardNavigation || !document.hasFocus() || !button.matches(":focus-visible")) return;
     hide();
     owner = button;
     show(button);
@@ -146,7 +146,9 @@
   window.intextControls.resetTooltip = deactivate;
   window.addEventListener("blur", deactivate);
   window.addEventListener("pagehide", deactivate);
-  document.addEventListener("visibilitychange", deactivate);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") deactivate();
+  });
   window.addEventListener("resize", hide);
   new MutationObserver(function () {
     if (!owner) return;
