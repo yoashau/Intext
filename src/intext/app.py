@@ -1231,7 +1231,13 @@ class App:
             if generation != self._tray_generation or self._quitting:
                 return
             native = window.native
-            left, top = tray_menu_position((x, y), (int(native.Width), int(native.Height)), work_area_at(x, y))
+            # The 160px host leaves 21 logical px below the visible menu.
+            # Match the Windows tray overflow's measured 20 physical px gap.
+            scale = float(native._scale) or 1.0
+            left, top = tray_menu_position(
+                (x, y), (int(native.Width), int(native.Height)), work_area_at(x, y),
+                bottom_outset=round(21 * scale - 20),
+            )
             native.SetDesktopLocation(left, top)
             control = self._webview_control(window)
             if control is None:

@@ -60,7 +60,9 @@ def should_dismiss_popup(point: tuple[int, int], rect: tuple[int, int, int, int]
     return x < left or y < top or x >= right or y >= bottom
 
 
-def tray_menu_position(point: tuple[int, int], size: tuple[int, int], work: tuple[int, int, int, int]) -> tuple[int, int]:
+def tray_menu_position(
+    point: tuple[int, int], size: tuple[int, int], work: tuple[int, int, int, int], *, bottom_outset: int = 0,
+) -> tuple[int, int]:
     x, y = point
     width, height = size
     left, top, right, bottom = work
@@ -68,4 +70,8 @@ def tray_menu_position(point: tuple[int, int], size: tuple[int, int], work: tupl
     preferred = x + gap
     if preferred + width > right:
         preferred = x - width - gap
-    return min(max(preferred, left), max(left, right - width)), min(max(y - height, top), max(top, bottom - height))
+    # Only the transparent shadow host may extend into the taskbar area.
+    anchor_y = bottom + bottom_outset if y >= bottom else y
+    menu_x = min(max(preferred, left), max(left, right - width))
+    menu_y = min(max(anchor_y - height, top), max(top, bottom + bottom_outset - height))
+    return menu_x, menu_y
