@@ -33,6 +33,8 @@
   let owner = null;
   let timer = 0;
   let keyboardNavigation = false;
+  let hoveredOwner = null;
+  let lastPointerEntry = 0;
 
   // WebView restores focus when a native window opens, even for a tray click.
   // :focus-visible alone also matches that programmatic focus.
@@ -47,6 +49,7 @@
   function hide() {
     clearTimeout(timer);
     tooltip.hidden = true;
+    tooltip.classList.remove("is-scrollable");
     if (owner) {
       const ids = (owner.getAttribute("aria-describedby") || "").split(/\s+/).filter(id => id && id !== tooltip.id);
       if (ids.length) owner.setAttribute("aria-describedby", ids.join(" "));
@@ -83,9 +86,16 @@
     return event.target.closest(".help, [data-tooltip]");
   }
 
+  function keyboardOwnsTooltip() {
+    return !!owner && keyboardNavigation && document.hasFocus() &&
+      document.activeElement === owner && owner.matches(":focus-visible");
+  }
+
   document.addEventListener("pointerover", function (event) {
     const button = target(event);
     if (!button || button.disabled) return;
+    hoveredOwner = button;
+    lastPointerEntry = Date.now();
     // Moving onto a child (the ? glyph, for example) must not cancel a
     // pending show. Only cancel a pending hide for an already visible tip.
     if (button === owner) { if (!tooltip.hidden) clearTimeout(timer); return; }
@@ -94,14 +104,19 @@
     timer = setTimeout(function () { show(button); }, 280);
   });
   document.addEventListener("pointerout", function (event) {
+    if (hoveredOwner && hoveredOwner.contains(event.target) &&
+        (!event.relatedTarget || !hoveredOwner.contains(event.relatedTarget))) hoveredOwner = null;
     if (owner && owner.contains(event.target) && (!event.relatedTarget || !owner.contains(event.relatedTarget))) {
-      if (tooltip.classList.contains("is-scrollable")) timer = setTimeout(hide, 180);
-      else hide();
+      if (keyboardOwnsTooltip()) return;
+      if (!tooltip.hidden && tooltip.classList.contains("is-scrollable")) {
+        clearTimeout(timer);
+        timer = setTimeout(hide, 180);
+      } else hide();
     }
   });
   tooltip.addEventListener("pointerenter", function () { clearTimeout(timer); });
   tooltip.addEventListener("pointerleave", function (event) {
-    if (owner && event.relatedTarget && owner.contains(event.relatedTarget)) return;
+    if (keyboardOwnsTooltip() || (owner && event.relatedTarget && owner.contains(event.relatedTarget))) return;
     hide();
   });
   document.addEventListener("focusin", function (event) {
@@ -112,7 +127,8 @@
     show(button);
   });
   document.addEventListener("focusout", function (event) {
-    if (owner === event.target) hide();
+    if (owner === event.target && hoveredOwner !== owner &&
+        !(tooltip.classList.contains("is-scrollable") && tooltip.matches(":hover"))) hide();
   });
   document.addEventListener("pointerdown", function (event) {
     if (tooltip.classList.contains("is-scrollable") && tooltip.contains(event.target)) return;
@@ -143,7 +159,14 @@
     keyboardNavigation = false;
     hide();
   }
-  window.intextControls.resetTooltip = deactivate;
+  window.intextControls.resetTooltip = function (requestedAt) {
+    keyboardNavigation = false;
+    // WebView2 may run the native reset after a newer mouse entry has
+    // already arrived. Keep that user's hover; clear only older state.
+    if (typeof requestedAt === "number" && lastPointerEntry >= requestedAt &&
+        hoveredOwner && hoveredOwner === owner && document.visibilityState === "visible") return;
+    hide();
+  };
   window.addEventListener("blur", deactivate);
   window.addEventListener("pagehide", deactivate);
   document.addEventListener("visibilitychange", function () {
@@ -154,8 +177,8 @@
     if (!owner) return;
     const source = owner.querySelector(".tip");
     const text = source ? source.textContent.trim() : owner.dataset.tooltip;
-    if (!owner.isConnected || owner.disabled || !owner.getClientRects().length || !text ||
-        (!tooltip.hidden && text !== tooltip.textContent)) hide();
+    if (!owner.isConnected || owner.disabled || !owner.getClientRects().length || !text) hide();
+    else if (!tooltip.hidden && text !== tooltip.textContent) show(owner);
   }).observe(document.body, { subtree: true, childList: true, characterData: true,
     attributes: true, attributeFilter: ["hidden", "disabled", "data-tooltip"] });
 })();

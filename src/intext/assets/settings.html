@@ -1210,6 +1210,14 @@
     window.addEventListener("blur", closeMenu);
     document.getElementById("hotkey-select").addEventListener("click", function () { recordKey("hotkey"); });
     document.getElementById("hotkey-shot").addEventListener("click", function () { recordKey("shotHotkey"); });
+    // Recording owns Escape even when the shared tooltip is visible.
+    document.addEventListener("keydown", function (event) {
+      if (!recording || event.isComposing || event.keyCode === 229 || event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cancelRecording();
+      window.intextControls.resetTooltip();
+    }, true);
     document.addEventListener("keydown", function (event) {
       if (event.isComposing || event.keyCode === 229) return;
       if (recording) {
@@ -1219,10 +1227,6 @@
         }
         event.preventDefault();
         event.stopPropagation();
-        if (event.key === "Escape") {
-          cancelRecording();
-          return;
-        }
         if (["Control", "Alt", "Shift", "Meta"].indexOf(event.key) !== -1) return;
         const parts = [];
         if (event.ctrlKey) parts.push("ctrl");

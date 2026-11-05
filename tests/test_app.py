@@ -12,6 +12,23 @@ from intext.translate import Translation
 
 
 class AppTests(unittest.TestCase):
+    def test_tooltip_bridge_failure_does_not_block_show_or_hide(self):
+        native = Mock(TopMost=False)
+        native.Handle.ToInt64.return_value = 123
+        window = SimpleNamespace(native=native)
+        self.app._settings_window = window
+        control = Mock()
+        control.ExecuteScriptAsync.side_effect = RuntimeError('WebView is not ready')
+        platform = SimpleNamespace(foreground=Mock())
+        with patch.dict(sys.modules, {'intext.platform_win': platform}), \
+             patch.object(self.app, '_webview_control', return_value=control), \
+             patch.object(self.app, '_hide_settings_frame'), \
+             patch('intext.app.log_error'):
+            App._show_native(self.app, window)
+            App._hide_native(self.app, window)
+        native.Show.assert_called_once()
+        native.Hide.assert_called_once()
+
     def test_show_resets_help_and_only_float_windows_stay_topmost(self):
         platform = SimpleNamespace(foreground=Mock())
         with patch.dict(sys.modules, {'intext.platform_win': platform}):

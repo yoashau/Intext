@@ -656,7 +656,13 @@ class App:
         # visibilitychange. Reset before focus can be restored on reopening.
         control = self._webview_control(window)
         if control is not None:
-            control.ExecuteScriptAsync("if(window.intextControls){window.intextControls.resetTooltip();}")
+            requested_at = time.time_ns() // 1_000_000
+            try:
+                control.ExecuteScriptAsync(
+                    f"if(window.intextControls){{window.intextControls.resetTooltip({requested_at});}}"
+                )
+            except Exception:
+                log_error(traceback.format_exc())
 
     def _show_native(self, window) -> None:
         native = getattr(window, "native", None)

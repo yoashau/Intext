@@ -78,6 +78,17 @@ def main() -> int:
                 # regular items have no tooltip, so add one to cover errors.
                 view.evaluate_js('''window.pywebview = window.pywebview || {};
                     window.pywebview.api = {hide:()=>Promise.resolve(),activate:()=>Promise.resolve()};''')
+                view.evaluate_js('''window.__tooltipTrace=[];
+                    const trace=(name,target)=>__tooltipTrace.push({name,target,time:Date.now(),
+                      focused:document.hasFocus(),visibility:document.visibilityState,
+                      hidden:document.getElementById('tooltip').hidden});
+                    for(const name of ['pointerover','pointerout','focusin','focusout','visibilitychange'])
+                      document.addEventListener(name,e=>trace(name,e.target.id||e.target.dataset?.action||''),true);
+                    for(const name of ['focus','blur'])window.addEventListener(name,()=>trace(name,''));
+                    const reset=intextControls.resetTooltip;
+                    intextControls.resetTooltip=(...args)=>{trace('reset',String(args[0]||''));return reset(...args)};
+                    new MutationObserver(()=>trace('tooltip-changed','')).observe(document.getElementById('tooltip'),
+                      {attributes:true,attributeFilter:['hidden']});''')
                 if file == 'tray-menu.html':
                     view.evaluate_js('intextTray.open({startup:false});document.querySelector(\'[data-action="startup"]\').dataset.tooltip="tray help"')
                 target = 'document.querySelector(' + json.dumps(selector) + ')'
@@ -131,9 +142,84 @@ def main() -> int:
                 ui(lambda: (app._hide_native(view), background.Activate()))
                 time.sleep(.4)
                 check(hidden(view), file + ' hide cancels pending hover')
+
+            # Esc must cancel hotkey recording even if a help tooltip is up.
+            view = views[0]
+            ui(lambda: app._show_native(view))
+            view.evaluate_js("document.getElementById('hotkey-select').focus();document.getElementById('hotkey-select').click()")
+            check(view.evaluate_js("document.getElementById('hotkey-select').classList.contains('is-on')"),
+                  'hotkey recording starts')
+            help_rect = view.evaluate_js('''JSON.stringify((()=>{
+              const r=document.getElementById('select-tip').parentElement.getBoundingClientRect();
+              return {x:r.x+r.width/2,y:r.y+r.height/2};})())''')
+            if isinstance(help_rect, str):
+                help_rect = json.loads(help_rect)
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **help_rect})
+            time.sleep(.4)
+            check(not hidden(view), 'help is visible during hotkey recording')
+            view.evaluate_js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true}))")
+            check(view.evaluate_js("document.getElementById('hotkey-select').classList.contains('is-on')") and not hidden(view),
+                  'composing Escape does not cancel recording or help')
+            for kind in ('keyDown', 'keyUp'):
+                protocol(view, 'Input.dispatchKeyEvent', {'type':kind,'key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+            check(not view.evaluate_js("document.getElementById('hotkey-select').classList.contains('is-on')"),
+                  'Escape cancels hotkey recording with help open')
+            check(hidden(view), 'canceling hotkey recording also dismisses help')
+            view.evaluate_js("document.getElementById('hotkey-select').click()")
+            for kind in ('keyDown', 'keyUp'):
+                protocol(view, 'Input.dispatchKeyEvent', {'type':kind,'key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+            check(not view.evaluate_js("document.getElementById('hotkey-select').classList.contains('is-on')"),
+                  'Escape cancels hotkey recording without help')
+            view.evaluate_js("window.hides=0;window.pywebview.api={save:async()=>({}),hide:()=>{window.hides++}}")
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **help_rect})
+            time.sleep(.4)
+            check(not hidden(view), 'help is visible when not recording')
+            for kind in ('keyDown', 'keyUp'):
+                protocol(view, 'Input.dispatchKeyEvent', {'type':kind,'key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+            check(hidden(view) and view.evaluate_js('window.hides') == 0, 'first Escape dismisses help only')
+            for kind in ('keyDown', 'keyUp'):
+                protocol(view, 'Input.dispatchKeyEvent', {'type':kind,'key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+            time.sleep(.1)
+            check(view.evaluate_js('window.hides') == 1, 'second Escape retains settings close behavior')
+            # Repeated native toggles must not let a late reset suppress the
+            # next deliberate hover or resurrect old tooltip state.
+            for _ in range(6):
+                ui(lambda: (app._hide_native(view), app._show_native(view)))
+            time.sleep(.15)
+            check(hidden(view) and not view.native.TopMost, 'rapid reopens keep settings quiet and non-topmost')
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **help_rect})
+            time.sleep(.4)
+            check(not hidden(view), 'hover still works after rapid reopens')
+
+            endpoint_rect = view.evaluate_js('''JSON.stringify((()=>{
+              const r=document.getElementById('endpoint-tip').parentElement.getBoundingClientRect();
+              return {x:r.x+r.width/2,y:r.y+r.height/2};})())''')
+            if isinstance(endpoint_rect, str):
+                endpoint_rect = json.loads(endpoint_rect)
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved','x':300,'y':300})
+            protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', **endpoint_rect})
+            time.sleep(.4)
+            check(not hidden(view), 'endpoint help is visible')
+            view.evaluate_js('''const endpoint=document.getElementById('endpoint');endpoint.value='invalid';
+              endpoint.dispatchEvent(new Event('input',{bubbles:true}));''')
+            time.sleep(.1)
+            check(view.evaluate_js('''!document.getElementById('tooltip').hidden &&
+              document.getElementById('tooltip').textContent === document.getElementById('endpoint-tip').textContent'''),
+              'visible endpoint help follows validation changes')
+            view.evaluate_js("document.getElementById('sheet').scrollTop=100")
+            time.sleep(.1)
+            check(view.evaluate_js("document.getElementById('sheet').scrollTop > 0") and hidden(view),
+                  'scrolling settings dismisses help')
             report['passed'] = True
         except Exception:
             report['error'] = traceback.format_exc()
+            try:
+                report['trace'] = view.evaluate_js('JSON.stringify(window.__tooltipTrace)')
+            except Exception:
+                pass
         finally:
             if background is not None:
                 ui(lambda: background.Close())
