@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,23 @@ from intext.translate import Translation
 
 
 class AppTests(unittest.TestCase):
+    def test_show_resets_help_and_only_float_windows_stay_topmost(self):
+        platform = SimpleNamespace(foreground=Mock())
+        with patch.dict(sys.modules, {'intext.platform_win': platform}):
+            for kind in ('_settings_window', '_popup', '_shot_window', '_tray_menu'):
+                with self.subTest(window=kind):
+                    events = []
+                    native = Mock(TopMost=True)
+                    native.Handle.ToInt64.return_value = 123
+                    native.Show.side_effect = lambda: events.append(('show', native.TopMost))
+                    window = SimpleNamespace(native=native)
+                    setattr(self.app, kind, window)
+                    with patch.object(self.app, '_reset_tooltip', side_effect=lambda _: events.append('reset')):
+                        with patch.object(self.app, '_arm_popup_blur'):
+                            App._show_native(self.app, window)
+                    self.assertEqual(events, ['reset', ('show', kind != '_settings_window')])
+                    native.Activate.assert_called_once()
+
     def test_clearing_endpoint_does_not_keep_using_the_previous_service(self):
         self.app.settings.endpoint = "https://previous.example.test/v1/chat/completions"
         with patch.object(self.app, "_take_hotkeys", return_value={}):

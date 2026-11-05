@@ -651,6 +651,13 @@ class App:
         except Exception:
             log_error(traceback.format_exc())
 
+    def _reset_tooltip(self, window) -> None:
+        # Hiding a native WebView does not reliably dispatch DOM blur or
+        # visibilitychange. Reset before focus can be restored on reopening.
+        control = self._webview_control(window)
+        if control is not None:
+            control.ExecuteScriptAsync("if(window.intextControls){window.intextControls.resetTooltip();}")
+
     def _show_native(self, window) -> None:
         native = getattr(window, "native", None)
         if native is None:
@@ -661,12 +668,13 @@ class App:
             native.Opacity = 1
         except Exception:
             pass
+        self._reset_tooltip(window)
         self._sync_taskbar(window, window is self._settings_window)
-        native.Show()
         try:
-            native.TopMost = True
+            native.TopMost = window is not self._settings_window
         except Exception:
             pass
+        native.Show()
         try:
             native.Activate()
         except Exception:
@@ -691,6 +699,7 @@ class App:
         native = getattr(window, "native", None)
         if native is None:
             return
+        self._reset_tooltip(window)
         if window is self._settings_window:
             self._hide_settings_frame(native)
         native.Hide()

@@ -32,6 +32,17 @@
   document.body.append(tooltip);
   let owner = null;
   let timer = 0;
+  let keyboardNavigation = false;
+
+  // WebView restores focus when a native window opens, even for a tray click.
+  // :focus-visible alone also matches that programmatic focus.
+  document.addEventListener("keydown", function (event) {
+    if (!event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey &&
+        ["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "Escape"].includes(event.key)) {
+      keyboardNavigation = true;
+    }
+  }, true);
+  document.addEventListener("pointerdown", function () { keyboardNavigation = false; }, true);
 
   function hide() {
     clearTimeout(timer);
@@ -45,7 +56,8 @@
   }
 
   function show(button) {
-    if (owner !== button || !button.isConnected || button.disabled) return;
+    if (owner !== button || !button.isConnected || button.disabled ||
+        !document.hasFocus() || document.visibilityState === "hidden") return;
     const source = button.querySelector(".tip");
     const text = source ? source.textContent.trim() : button.dataset.tooltip;
     if (!text) { hide(); return; }
@@ -94,7 +106,7 @@
   });
   document.addEventListener("focusin", function (event) {
     const button = target(event);
-    if (!button || !button.matches(":focus-visible")) return;
+    if (!button || !keyboardNavigation || !button.matches(":focus-visible")) return;
     hide();
     owner = button;
     show(button);
@@ -127,7 +139,14 @@
     }
   });
   document.addEventListener("scroll", function (event) { if (event.target !== tooltip) hide(); }, true);
-  window.addEventListener("blur", hide);
+  function deactivate() {
+    keyboardNavigation = false;
+    hide();
+  }
+  window.intextControls.resetTooltip = deactivate;
+  window.addEventListener("blur", deactivate);
+  window.addEventListener("pagehide", deactivate);
+  document.addEventListener("visibilitychange", deactivate);
   window.addEventListener("resize", hide);
   new MutationObserver(function () {
     if (!owner) return;
