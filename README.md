@@ -102,22 +102,23 @@ Windows 划词与截图翻译工具。选中文字、按下快捷键，在原处
 
 ## 从源码运行
 
-需要 Windows 和 Python 3.11 或更新版本：
+需要 Windows 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)。开发环境使用 uv 管理的 Python 3.13，依赖版本记录在 `uv.lock`：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[windows]"
-.\.venv\Scripts\python.exe packaging/prepare_ocr.py
-.\.venv\Scripts\python.exe -m intext
+uv sync --locked --managed-python --extra windows --group build
+uv run --locked --managed-python --extra windows python packaging/prepare_ocr.py
+.\run.ps1
 ```
+
+如果源码位于 WSL，在 Windows PowerShell 中先执行 `$env:UV_PROJECT_ENVIRONMENT = "$env:USERPROFILE\.local\share\intext\venv"`，把 Windows 虚拟环境保存在本地磁盘；`run.ps1` 会自动选择该目录。
 
 运行单元测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
+uv run --locked --managed-python --extra windows python -m unittest discover -s tests
 ```
 
-打包使用 [`packaging/build.ps1`](packaging/build.ps1)。脚本会扫描程序目录和安装包，Defender 检测通过后才复制安装包到下载目录，同时生成记录 SHA-256 和扫描结果的 `Intext-Setup.verification.json`。脚本不修改系统保护设置；扫描结果代表当时的本机检测结果。
+打包使用 [`packaging/build.ps1`](packaging/build.ps1)。脚本使用项目的 uv 环境，在 Windows 本地工作目录打包，扫描程序目录和安装包，Defender 检测通过后才复制安装包到下载目录，同时生成记录 SHA-256 和扫描结果的 `Intext-Setup.verification.json`。脚本不修改系统保护设置；扫描结果代表当时的本机检测结果。
 
 已打包程序可以通过 `Intext.exe --check-ocr <本机图片路径>` 检查 OCR，退出码为 0 表示识别到了文字，不发送翻译请求。
 

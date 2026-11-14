@@ -340,7 +340,9 @@
         item.addEventListener("click", function () {
           closeLanguages();
           if (kind === "reverse") api("swap", code);
-          else api("set_languages", { source: kind === "source" ? code : sourceCode, target: kind === "target" ? code : targetCode });
+          else if (code !== (kind === "source" ? sourceCode : targetCode)) {
+            api("set_languages", { source: kind === "source" ? code : sourceCode, target: kind === "target" ? code : targetCode });
+          }
           anchor.focus({ preventScroll: true });
         });
         item.addEventListener("keydown", function (event) {

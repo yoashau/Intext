@@ -1,5 +1,6 @@
 let current = null, sequence = -1, comparing = false, copyTimer = 0;
 let comparisonPinned = false, holdingOriginal = false;
+let lastFit = null;
 const canvas = document.getElementById('canvas'), image = document.getElementById('image');
 const frame = document.getElementById('image-frame');
 const labels = document.getElementById('labels'), viewport = document.getElementById('viewport');
@@ -14,6 +15,7 @@ function compare(value) {
   original.setAttribute('aria-pressed', String(comparing));
   original.setAttribute('aria-label', comparing ? '查看译文' : '查看原图');
   original.dataset.tooltip = comparing ? '查看译文' : '点击切换，或按住空格查看原图';
+  fit();
 }
 function resetCopy() { clearTimeout(copyTimer); copy.classList.remove('is-copied', 'is-copy-failed'); copy.dataset.tooltip = '复制译文'; copy.setAttribute('aria-label', '复制译文'); }
 function copyFeedback(success) {
@@ -24,17 +26,27 @@ function copyFeedback(success) {
   copyTimer = setTimeout(resetCopy, success ? 1400 : 2500);
 }
 function fit() {
-  if (!current || !current.width) return;
-  const scale = Math.min(1, viewport.clientWidth / current.width, viewport.clientHeight / current.height);
+  if (!current || !current.width || !current.height) return;
+  const width = viewport.clientWidth, height = viewport.clientHeight;
+  const scale = Math.min(1, width / current.width, height / current.height);
   canvas.style.width = (current.width * scale) + 'px'; canvas.style.height = (current.height * scale) + 'px';
-  labels.querySelectorAll('.region').forEach((el, index) => {
-    const block = current.blocks[index]; let low = Math.max(7, 9 * scale), high = Math.max(low, Math.min(96, block.fontSize) * scale);
-    for (let i = 0; i < 9; i++) {
-      const size = (low + high) / 2; el.style.fontSize = size + 'px';
-      if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) high = size; else low = size;
-    }
-    el.style.fontSize = low + 'px'; el.dataset.tooltip = block.text;
+  if (labels.hidden || frame.hidden) return;
+  if (lastFit && lastFit.state === current && lastFit.width === width && lastFit.height === height) return;
+  lastFit = {state: current, width, height};
+  const regions = Array.from(labels.querySelectorAll('.region'), (el, index) => {
+    const low = Math.max(7, 9 * scale);
+    return {el, low, high: Math.max(low, Math.min(96, current.blocks[index].fontSize) * scale)};
   });
+  // Batch writes before measuring. Measuring after every individual write
+  // forces a full layout for every region on each binary-search step.
+  for (let i = 0; i < 9; i++) {
+    regions.forEach(r => { r.size = (r.low + r.high) / 2; r.el.style.fontSize = r.size + 'px'; });
+    regions.forEach(r => {
+      if (r.el.scrollHeight > r.el.clientHeight + 1 || r.el.scrollWidth > r.el.clientWidth + 1) r.high = r.size;
+      else r.low = r.size;
+    });
+  }
+  regions.forEach(r => { r.el.style.fontSize = r.low + 'px'; });
 }
 window.intextShot = { apply(state) {
   if (typeof state.seq === 'number' && state.seq < sequence) return;
@@ -67,7 +79,7 @@ window.intextShot = { apply(state) {
   else image.removeAttribute('src');
   labels.replaceChildren();
   (state.blocks || []).forEach(block => {
-    const el = document.createElement('span'); el.className = 'region'; el.tabIndex = 0; el.textContent = block.text;
+    const el = document.createElement('span'); el.className = 'region'; el.tabIndex = 0; el.textContent = block.text; el.dataset.tooltip = block.text;
     for (const key of ['left', 'top', 'width', 'height']) el.style[key] = block[key] + '%';
     el.style.backgroundColor = block.background; el.style.color = block.color; labels.append(el);
   });

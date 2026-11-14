@@ -535,6 +535,9 @@
     let saveQueue = Promise.resolve();
     let saveVersion = 0;
     let editVersion = 0;
+    let pendingSaves = 0;
+    let initialized = false;
+    let pendingLanguages = null;
 
     function showSaveError(failed) {
       const button = document.getElementById("save-error");
@@ -740,13 +743,15 @@
         delete payload.hotkeyError;
         delete payload.shotHotkeyError;
         const version = ++saveVersion;
+        pendingSaves++;
         saveQueue = saveQueue.then(() => bridge.save(payload)).then(function (value) {
           if (version === saveVersion) {
             adoptHotkeys(value, sentSelect, sentShot, !!fromKeys);
             showSaveError(false);
           }
           return true;
-        }).catch(() => { if (version === saveVersion) showSaveError(true); return false; });
+        }).catch(() => { if (version === saveVersion) showSaveError(true); return false; })
+          .finally(() => { pendingSaves--; });
         return saveQueue;
       }
       showSaveError(true);
@@ -755,6 +760,7 @@
 
     async function saveAndHide() {
       clearTimeout(saveTimer);
+      saveTimer = 0;
       const version = saveVersion + 1, edits = editVersion;
       if (await pushSave() && version === saveVersion && edits === editVersion) api("hide");
     }
@@ -823,7 +829,8 @@
       });
       renderCode();
       clearTimeout(saveTimer);
-      if (debounce) saveTimer = setTimeout(pushSave, 180);
+      saveTimer = 0;
+      if (debounce) saveTimer = setTimeout(() => { saveTimer = 0; pushSave(); }, 180);
       else pushSave();
     }
 
@@ -1100,8 +1107,10 @@
       if (Object.hasOwn(next, "endpoint")) state.endpoint = String(next.endpoint || "");
       state.apiKey = next.apiKey || next.api_key || "";
       state.model = next.model || "";
-      state.source = next.source || "auto";
-      state.target = next.target || "zh";
+      state.source = (pendingLanguages && pendingLanguages.source) || next.source || "auto";
+      state.target = (pendingLanguages && pendingLanguages.target) || next.target || "zh";
+      pendingLanguages = null;
+      initialized = true;
       state.hotkey = next.hotkey || state.hotkey;
       state.shotHotkey = next.shotHotkey || next.shot_hotkey || state.shotHotkey;
       state.shotInput = (next.shotInput || next.shot_input) === 'image' ? 'image' : 'ocr';
@@ -1161,7 +1170,7 @@
     document.getElementById("sheet").addEventListener("input", function () { readControls(true); });
     document.getElementById("sheet").addEventListener("change", function () { readControls(false); });
     document.getElementById("stash").addEventListener("click", saveAndHide);
-    document.getElementById("save-error").addEventListener("click", function () { clearTimeout(saveTimer); pushSave(); });
+    document.getElementById("save-error").addEventListener("click", function () { clearTimeout(saveTimer); saveTimer = 0; pushSave(); });
     document.getElementById("sheet").addEventListener("scroll", function () {
       const sheet = document.getElementById("sheet");
       sheet.classList.toggle("is-scrolled", sheet.scrollTop > 1);
@@ -1291,11 +1300,22 @@
       }
     });
     function applyLanguages(next) {
+      if (!initialized) {
+        pendingLanguages = { source: next.source, target: next.target };
+        return;
+      }
       state.source = next.source;
       state.target = next.target;
       fillSelect("source", SOURCE_OPTIONS, state.source);
       fillSelect("target", TARGET_OPTIONS, state.target);
       renderCode();
+      // Only replay when an earlier settings save could overwrite the
+      // language change, which the popup has already persisted itself.
+      if (saveTimer || pendingSaves) {
+        clearTimeout(saveTimer);
+        saveTimer = 0;
+        pushSave();
+      }
     }
     window.intextSettings = { apply: apply, hotkeys: applyHotkeys, languages: applyLanguages, body: requestBody };
     renderCode();

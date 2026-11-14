@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import threading
 import time
@@ -176,7 +177,13 @@ def _patch_transparent_show() -> None:
 class App:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or load_settings()
-        self.cache = TieredCache(MemoryCache(), SqliteCache(config_dir() / "cache.sqlite"))
+        try:
+            self.cache = TieredCache(MemoryCache(), SqliteCache(config_dir() / "cache.sqlite"))
+        except (OSError, sqlite3.Error):
+            # A damaged or unavailable cache must not prevent tray startup.
+            # Keep the file intact and retain reuse for this session.
+            log_error(traceback.format_exc())
+            self.cache = MemoryCache()
         self._gen = 0
         self._pinned = bool(self.settings.pinned)
         self._popup_requested = False
@@ -193,6 +200,9 @@ class App:
         self._popup = None
         self._popup_hwnd = 0
         self._settings_window = None
+        self._settings_requested: bool | None = None
+        self._settings_visibility_generation = 0
+        self._settings_visibility_lock = threading.Lock()
         self._tray_menu = None
         self._tray_ready = False
         self._tray_pending = None
@@ -811,26 +821,25 @@ class App:
         self._on_ui(window, apply)
 
     def hide_settings(self) -> None:
-        window = self._settings_window
-        if window is not None:
-            window._intext_keep_hidden = True
+        with self._settings_visibility_lock:
+            self._settings_requested = False
+            self._settings_visibility_generation += 1
+            generation = self._settings_visibility_generation
+            window = self._settings_window
+            if window is not None:
+                window._intext_keep_hidden = True
         if window is None or self._quitting:
             return
+        self._apply_settings_visibility(generation)
 
-        def apply() -> None:
-            self._sync_taskbar(window, False)
-            self._hide_native(window)
-
-        self._on_ui(window, apply)
-
-    def retry(self) -> None:
+    def retry(self, *, use_cache: bool = False) -> None:
         if self._last_shot is not None:
             settings = deepcopy(self.settings)
             settings.shot_input = self._shot_context.shot_input
             settings.shot_display = self._shot_context.shot_display
             self._shot_context = settings
             self._gen += 1
-            self._start_shot(self._gen, settings, use_cache=False)
+            self._start_shot(self._gen, settings, use_cache=use_cache)
             return
         if not self._last_text:
             return
@@ -840,7 +849,7 @@ class App:
         threading.Thread(
             target=self._finish,
             args=(self._last_text, gen),
-            kwargs={"use_cache": False},
+            kwargs={"use_cache": use_cache},
             daemon=True,
         ).start()
 
@@ -869,13 +878,13 @@ class App:
         with self._settings_lock:
             self.settings.source, self.settings.target = source, target
             save_settings(self.settings)
-        self._sync_languages()
+            self._sync_languages()
         if (self._popup_state or {}).get("mode") == "input":
             state = self._base_state("")
             state.update(mode="input", status="输入翻译")
             self._push(state, enter=False)
         elif self._last_shot is not None:
-            self.retry()
+            self.retry(use_cache=True)
         elif self._last_text:
             self._gen += 1
             gen = self._gen
@@ -1019,7 +1028,7 @@ class App:
                 previous.get("resultLang") or settings.target,
             )
             save_settings(settings)
-        self._sync_languages()
+            self._sync_languages()
         self._last_shot = None
         self._last_text = result
         self._gen += 1
@@ -1190,14 +1199,37 @@ class App:
 
     def open_settings(self) -> None:
         self.hide_tray_menu()
+        with self._settings_visibility_lock:
+            self._settings_requested = True
+            self._settings_visibility_generation += 1
+            generation = self._settings_visibility_generation
+            window = self._settings_window
+            if window is not None:
+                window._intext_keep_hidden = False
+        if window is None or self._quitting:
+            return
+        _boot("open-settings")
+        self._apply_settings_visibility(generation)
+
+    def _apply_settings_visibility(self, generation: int) -> None:
         window = self._settings_window
-        if window is not None:
-            window._intext_keep_hidden = False
         if window is None:
             return
-        payload = self.settings_payload()
 
+        # The loaded handler initializes this persistent page. Reapplying a
+        # backend snapshot can overwrite an edit whose autosave is still queued.
         def apply() -> None:
+            if self._quitting:
+                return
+            with self._settings_visibility_lock:
+                if generation != self._settings_visibility_generation:
+                    return
+                requested = bool(self._settings_requested)
+                window._intext_keep_hidden = not requested
+            if not requested:
+                self._sync_taskbar(window, False)
+                self._hide_native(window)
+                return
             self._show_native(window)
             self._sync_taskbar(window, True)
             self._shape_settings()
@@ -1208,10 +1240,7 @@ class App:
                 self._sync_taskbar(window, False)
                 self._hide_native(window)
                 return
-            script = _apply_script("window.intextSettings.apply", payload, "settings")
-            control.ExecuteScriptAsync(script)
 
-        _boot("js-queued settings")
         self._on_ui(window, apply)
 
     def mark_ready(self, kind: str = "") -> None:
@@ -1753,12 +1782,14 @@ def _on_settings_loaded(app: App, settings_only: bool, silent: bool = False):
             _apply_script("window.intextSettings.apply", app.settings_payload(), "settings"),
             "settings",
         )
-        show = settings_visible_on_launch(model=app.settings.model, settings_only=settings_only, preview=app._preview, silent=silent)
-        window._intext_keep_hidden = not show
-        if show:
-            app.open_settings()
-        else:
-            app.hide_settings()
+        with app._settings_visibility_lock:
+            if app._settings_requested is None:
+                app._settings_requested = settings_visible_on_launch(
+                    model=app.settings.model, settings_only=settings_only, preview=app._preview, silent=silent
+                )
+            generation = app._settings_visibility_generation
+            window._intext_keep_hidden = not app._settings_requested
+        app._apply_settings_visibility(generation)
 
     return loaded
 

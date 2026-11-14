@@ -117,6 +117,8 @@ def _bind() -> None:
     user32.SetTimer.restype = ctypes.c_size_t
     user32.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
     user32.KillTimer.restype = wintypes.BOOL
+    user32.RegisterWindowMessageW.argtypes = [wintypes.LPCWSTR]
+    user32.RegisterWindowMessageW.restype = wintypes.UINT
     # Do not rebind GetCursorPos here. A second POINT type makes the popup
     # path raise ArgumentError after this module is imported.
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
@@ -176,6 +178,7 @@ class Shell:
         self._logged_state = None
         self._thread_id = None
         self._stopped = threading.Event()
+        self._taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
 
     def run(self) -> None:
         self._thread_id = threading.get_ident()
@@ -356,8 +359,9 @@ class Shell:
             self._retry_armed = False
 
     def _add_icon(self) -> None:
+        previous = self._icon
         self._icon_size = small_icon_size()
-        self._icon = load_tray_icon(self.icon_path(), self._icon_size)
+        self._icon = load_tray_icon(self.icon_path(), self._icon_size) or previous
         nid = self._nid
         nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
         nid.hWnd = self.hwnd
@@ -369,6 +373,8 @@ class Shell:
         nid.uVersion = 3
         shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
         shell32.Shell_NotifyIconW(NIM_SETVERSION, ctypes.byref(nid))
+        if previous and previous != self._icon:
+            destroy_icon(previous)
 
     def _replace_icon(self) -> None:
         previous = self._icon
@@ -407,6 +413,9 @@ class Shell:
 
     def _wndproc(self, hwnd, message, wparam, lparam) -> int:
         try:
+            if self._taskbar_created and message == self._taskbar_created:
+                self._add_icon()
+                return 0
             if message == WM_TRAY and lparam in (WM_LBUTTONUP, WM_RBUTTONUP, WM_CONTEXTMENU):
                 if lparam == WM_LBUTTONUP:
                     self.on_open()

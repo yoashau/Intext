@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -72,9 +73,15 @@ def main() -> int:
 
     def inspect(_app):
         try:
+            # Simulate a tray click as soon as the shell starts, including
+            # before the settings window has acquired its native handle.
+            app.open_settings()
             for window in (app._popup, app._settings_window, app._shot_window, app._tray_menu):
                 if not window.events.loaded.wait(15):
                     raise TimeoutError('WebView did not load')
+            wait_for(lambda: app._settings_window.native and app._settings_window.native.Visible)
+            report['earlySettings'] = True
+            app.hide_settings()
             wait_for(lambda: app._shot_ready)
             for method in ('ocr', 'image'):
                 for view in ('popup', 'overlay'):
@@ -134,6 +141,66 @@ def main() -> int:
             report['requests'] = len(requests)
             if len(requests) != 6:
                 raise AssertionError('Unexpected number of provider calls')
+
+            # The last screenshot is image + overlay. Switching back to a
+            # previously used language should reuse it; explicit retry should
+            # still request a fresh result.
+            for target, expected in (('ja', 7), ('zh', 7)):
+                app.set_languages({'source': 'en', 'target': target})
+                gen = app._gen
+                wait_for(lambda: app._shot_state and app._shot_state.get('seq') == gen and not app._shot_state.get('busy'))
+                if app._shot_state.get('error') or len(requests) != expected:
+                    raise AssertionError('Screenshot language change did not reuse the expected cache')
+            app.retry()
+            gen = app._gen
+            wait_for(lambda: app._shot_state and app._shot_state.get('seq') == gen and not app._shot_state.get('busy'))
+            if app._shot_state.get('error') or len(requests) != 8:
+                raise AssertionError('Screenshot retry did not bypass the cache')
+            report['languageCache'] = True
+
+            # Hold one settings save across a popup language change, then let
+            # the real WebView bridge finish both saves in their original order.
+            app.open_input()
+            app.open_settings()
+            window = app._settings_window
+            wait_for(lambda: window.native.Visible and window.evaluate_js(
+                "!!(window.pywebview && window.pywebview.api && window.pywebview.api.save)"))
+            entered, release = threading.Event(), threading.Event()
+            original_save = app.save_settings
+            first = [True]
+
+            def delayed_save(payload):
+                if first[0]:
+                    first[0] = False
+                    entered.set()
+                    if not release.wait(10):
+                        raise TimeoutError('Settings save was not released')
+                return original_save(payload)
+
+            app.save_settings = delayed_save
+            try:
+                window.evaluate_js("""(() => {
+                    const input = document.getElementById('model');
+                    input.value = 'native-fixture-edited';
+                    input.dispatchEvent(new Event('change', {bubbles: true}));
+                })()""")
+                if not entered.wait(5):
+                    raise TimeoutError('Settings save did not start')
+                app.open_settings()
+                if window.evaluate_js("document.getElementById('model').value") != 'native-fixture-edited':
+                    raise AssertionError('Reopening settings replaced a pending edit')
+                app.set_languages({'source': 'en', 'target': 'fr'})
+                wait_for(lambda: window.evaluate_js("document.getElementById('target').value") == 'fr')
+                release.set()
+                wait_for(lambda: app.settings.model == 'native-fixture-edited' and app.settings.target == 'fr')
+                from intext.config import load_settings
+                saved = load_settings()
+                if saved.model != 'native-fixture-edited' or saved.target != 'fr':
+                    raise AssertionError('The queued save lost the edited model or language')
+                report['settingsSaveRace'] = True
+            finally:
+                release.set()
+                app.save_settings = original_save
             report['passed'] = True
         except Exception:
             report['error'] = traceback.format_exc()

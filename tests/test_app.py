@@ -12,6 +12,76 @@ from intext.translate import Translation
 
 
 class AppTests(unittest.TestCase):
+    def test_damaged_cache_does_not_prevent_startup_or_session_reuse(self):
+        # Use a separate directory from this test's existing App connection.
+        path = Path(os.environ['APPDATA']) / 'Intext' / 'damaged.sqlite'
+        path.write_bytes(b'not a sqlite database')
+        from intext.cache import SqliteCache
+
+        with patch('intext.app.SqliteCache', side_effect=lambda _: SqliteCache(path)), \
+             patch('intext.app.log_error') as log:
+            app = App(Settings(model='m'))
+        provider = Mock()
+        provider.translate.return_value = '译文'
+        with patch('intext.app.OpenAICompatibleProvider', return_value=provider):
+            self.assertFalse(app.translate_text('hello').cached)
+            self.assertTrue(app.translate_text('hello').cached)
+        provider.translate.assert_called_once()
+        log.assert_called_once()
+        self.assertEqual(path.read_bytes(), b'not a sqlite database')
+        # Windows refuses the rename if failed SQLite initialization leaked a handle.
+        backup = path.with_name('damaged-backup.sqlite')
+        path.rename(backup)
+        self.assertEqual(backup.read_bytes(), b'not a sqlite database')
+
+    def test_reopening_settings_preserves_the_pages_pending_edits(self):
+        window = SimpleNamespace(native=SimpleNamespace(Visible=True))
+        self.app._settings_window = window
+        control = Mock()
+        with patch.object(self.app, '_shape_settings'), \
+             patch.object(self.app, '_webview_control', return_value=control):
+            self.app.open_settings()
+        self.assertFalse(window._intext_keep_hidden)
+        self.assertIn('show', self.calls)
+        control.ExecuteScriptAsync.assert_not_called()
+
+    def test_settings_request_before_native_window_exists_is_applied_when_loaded(self):
+        from intext.app import _on_settings_loaded
+
+        self.app._settings_window = SimpleNamespace(native=None, _intext_keep_hidden=True)
+        self.app._on_ui = lambda window, callback: callback() if window.native is not None else None
+        with patch.object(self.app, '_shape_settings'), patch.object(self.app, '_run_js'), \
+             patch.object(self.app, 'settings_payload', return_value={}):
+            self.app.open_settings()
+            self.assertEqual(self.calls, [])
+            self.app._settings_window.native = SimpleNamespace(Visible=False)
+            _on_settings_loaded(self.app, settings_only=False, silent=True)()
+        self.assertTrue(self.app._settings_requested)
+        self.assertFalse(self.app._settings_window._intext_keep_hidden)
+        self.assertIn('show', self.calls)
+
+    def test_older_queued_settings_visibility_cannot_override_a_reopen(self):
+        self.app._settings_window = SimpleNamespace(native=SimpleNamespace(Visible=True))
+        queue = []
+        self.app._on_ui = lambda _window, callback: queue.append(callback)
+        with patch.object(self.app, '_shape_settings'):
+            self.app.hide_settings()
+            self.app.open_settings()
+            queue[0]()
+            queue[1]()
+        self.assertNotIn('hide', self.calls)
+        self.assertEqual(self.calls.count('show'), 1)
+
+    def test_screenshot_language_changes_reuse_cache_but_retry_refreshes(self):
+        self.app._last_shot = object()
+        self.app._shot_context = Settings(model='m', source='en', shot_input='image')
+        with patch.object(self.app, '_start_shot') as start:
+            self.app.set_languages({'source': 'en', 'target': 'ja'})
+            self.assertEqual(start.call_args.args[1].target, 'ja')
+            self.assertTrue(start.call_args.kwargs['use_cache'])
+            self.app.retry()
+            self.assertFalse(start.call_args.kwargs['use_cache'])
+
     def test_tooltip_bridge_failure_does_not_block_show_or_hide(self):
         native = Mock(TopMost=False)
         native.Handle.ToInt64.return_value = 123

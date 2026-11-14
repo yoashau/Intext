@@ -93,18 +93,22 @@ class SqliteCache(LoadingCache):
         self._limit = max(1, int(limit))
         self._lock = threading.Lock()
         self._db = sqlite3.connect(path, check_same_thread=False)
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA synchronous=NORMAL")
-        self._db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS translations (
-                key TEXT PRIMARY KEY,
-                result TEXT NOT NULL,
-                created REAL NOT NULL
+        try:
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA synchronous=NORMAL")
+            self._db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS translations (
+                    key TEXT PRIMARY KEY,
+                    result TEXT NOT NULL,
+                    created REAL NOT NULL
+                )
+                """
             )
-            """
-        )
-        self._db.commit()
+            self._db.commit()
+        except BaseException:
+            self._db.close()
+            raise
 
     def get(self, key: str) -> str | None:
         with self._lock:

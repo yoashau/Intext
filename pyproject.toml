@@ -13,6 +13,12 @@ windows = [
     "onnxruntime>=1.23,<2; sys_platform == 'win32'",
 ]
 
+[dependency-groups]
+build = [
+    "pyinstaller>=6,<7",
+    "pefile>=2024.8.26",
+]
+
 [project.scripts]
 intext = "intext.__main__:main"
 
