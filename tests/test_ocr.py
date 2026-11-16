@@ -1,6 +1,10 @@
 import io
 import sys
 import unittest
+import threading
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 from intext.ocr import recognition_model
@@ -8,6 +12,25 @@ from intext.screenshot import Screenshot, Selection
 
 
 class OcrTests(unittest.TestCase):
+    def test_obsolete_ocr_waiting_for_model_does_not_run_inference(self):
+        from intext import ocr
+        waiting = threading.Event()
+        checks = iter([False, True])
+
+        def cancelled():
+            result = next(checks)
+            waiting.set()
+            return result
+
+        with patch.dict(sys.modules, {'numpy': SimpleNamespace()}), \
+             patch.object(ocr, '_engine') as engine, ThreadPoolExecutor(max_workers=1) as pool:
+            with ocr._lock:
+                future = pool.submit(ocr.recognize, Mock(), cancelled=cancelled)
+                self.assertTrue(waiting.wait(2))
+            with self.assertRaises(CancelledError):
+                future.result(timeout=2)
+        engine.assert_not_called()
+
     def test_recognition_language_matches_the_selected_source(self):
         for source in ("auto", "zh", "zh-Hans", "en", "ja"):
             self.assertEqual(recognition_model(source)[0], "ch")

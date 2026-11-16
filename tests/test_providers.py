@@ -1,7 +1,10 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from intext.providers import OpenAICompatibleProvider, UrllibClient, _http_message
+import httpx
+
+from intext.http_client import PooledHttpClient
+from intext.providers import OpenAICompatibleProvider, _http_message
 from intext.translate import TranslationError, Translator
 from intext.cache import MemoryCache
 
@@ -45,55 +48,36 @@ class ProviderCompletionTest(unittest.TestCase):
         self.assertEqual(http.post_json.call_count, 2)
 
 
-class _TimeoutResponse:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    def read(self):
-        raise TimeoutError("The read operation timed out")
+class _TimeoutBody(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        raise httpx.ReadTimeout('stalled')
+        yield b''
 
 
 class ProviderTimeoutTest(unittest.TestCase):
-    def test_error_echo_of_current_nonstandard_key_is_redacted(self):
-        import io
-        import urllib.error
+    def client(self, handler):
+        client = PooledHttpClient(transport=httpx.MockTransport(handler), trust_env=False)
+        self.addCleanup(client.close)
+        return client
 
+    def test_error_echo_of_current_nonstandard_key_is_redacted(self):
         secret = "review-custom-key-123456"
-        body = io.BytesIO(('{"error":"Invalid API key: ' + secret + '"}').encode())
-        error = urllib.error.HTTPError("https://example.test", 401, "denied", {}, body)
-        with patch("intext.providers.urllib.request.urlopen", side_effect=error):
-            with self.assertRaises(TranslationError) as caught:
-                UrllibClient().post_json("https://example.test", {"Authorization": "Bearer " + secret}, {}, .1)
+        client = self.client(lambda _: httpx.Response(401, json={'error': 'Invalid API key: ' + secret}))
+        with self.assertRaises(TranslationError) as caught:
+            client.post_json("https://example.test", {"Authorization": "Bearer " + secret}, {}, 2)
         self.assertNotIn(secret, str(caught.exception))
         self.assertIn("[redacted]", str(caught.exception))
         self.assertIn("401", str(caught.exception))
 
     def test_unreadable_error_body_keeps_the_http_status(self):
-        import http.client
-        import urllib.error
-
-        for failure in (TimeoutError("stalled"), http.client.IncompleteRead(b"partial")):
-            with self.subTest(failure=type(failure).__name__):
-                body = Mock()
-                body.read.side_effect = failure
-                error = urllib.error.HTTPError("https://example.test", 429, "limited", {}, body)
-                with patch("intext.providers.urllib.request.urlopen", side_effect=error):
-                    with self.assertRaisesRegex(TranslationError, "模型请求失败（429）"):
-                        UrllibClient().post_json("https://example.test", {}, {}, .1)
+        client = self.client(lambda _: httpx.Response(429, stream=_TimeoutBody()))
+        with self.assertRaisesRegex(TranslationError, "模型请求失败（429）"):
+            client.post_json("https://example.test", {}, {}, 2)
 
     def test_body_timeout_stays_a_short_error(self):
-        import intext.providers as providers
-
-        original = providers.urllib.request.urlopen
-        providers.urllib.request.urlopen = lambda *_args, **_kwargs: _TimeoutResponse()
-        try:
-            with self.assertRaises(TranslationError) as caught:
-                UrllibClient().post_json("https://example.test", {}, {"model": "m"}, 0.1)
-        finally:
-            providers.urllib.request.urlopen = original
+        client = self.client(lambda _: httpx.Response(200, stream=_TimeoutBody()))
+        with self.assertRaises(TranslationError) as caught:
+            client.post_json("https://example.test", {}, {"model": "m"}, 2)
         self.assertEqual(str(caught.exception), "请求超时")
         self.assertNotIn("timed out", str(caught.exception))
 

@@ -183,20 +183,5 @@
   }
 
 
-  const interactive = "input, textarea, select, option, button, a, .code, .resize, .choice, .switch, .keycap, .menu-pop, .result, .source, .content, .tip, .mac-thumb";
-  document.addEventListener("dragstart", function (event) {
-    event.preventDefault();
-  });
-  document.addEventListener("mousedown", function (event) {
-    if (event.button !== 0) return;
-    const target = event.target;
-    if (!target || !target.closest) return;
-    if (target.closest(interactive)) return;
-    if (!target.closest(".sheet, .head, .glass, .stage")) return;
-    event.preventDefault();
-    const api = window.pywebview && window.pywebview.api;
-    if (api && api.begin_drag) api.begin_drag();
-  });
-
   window.intextScroll = { mount: mount };
 })();

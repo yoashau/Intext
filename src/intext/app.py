@@ -9,11 +9,13 @@ import threading
 import time
 import traceback
 from copy import deepcopy
+from concurrent.futures import CancelledError
 from pathlib import Path
 
 from .cache import MemoryCache, SqliteCache, TieredCache
 from .config import Settings, config_dir, load_settings, log_error, save_settings
 from .fields import enabled_payload
+from .http_client import CancellationToken, PooledHttpClient
 from .providers import OpenAICompatibleProvider
 from .translate import Translation, TranslationError, Translator, cache_key, language_label, normalize_text, system_prompt
 
@@ -185,6 +187,13 @@ class App:
             log_error(traceback.format_exc())
             self.cache = MemoryCache()
         self._gen = 0
+        self._request_lock = threading.Lock()
+        # Identical selections share network work, while each new view retires
+        # obsolete consumer threads waiting for that shared work.
+        self._request_scope = CancellationToken()
+        self._worker_scope = CancellationToken()
+        self._request_key = None
+        self._http = PooledHttpClient()
         self._pinned = bool(self.settings.pinned)
         self._popup_requested = False
         self._last_text = ""
@@ -225,7 +234,49 @@ class App:
         name = f"{prefix}.ico" if system_uses_light_theme() else f"{prefix}-on-dark.ico"
         return asset_dir() / name
 
-    def translator(self) -> Translator:
+    def _next_generation(self, *, keep_request: bool = False) -> int:
+        with self._request_lock:
+            previous = self._request_scope
+            previous_worker = self._worker_scope
+            self._gen += 1
+            self._worker_scope = CancellationToken()
+            if not keep_request:
+                self._request_scope = CancellationToken()
+                self._request_key = None
+            generation = self._gen
+        previous_worker.cancel()
+        if not keep_request:
+            previous.cancel()
+        return generation
+
+    def _text_request_key(self, text: str):
+        settings = self.settings
+        return (cache_key(text=normalize_text(text), source=settings.source, target=settings.target,
+            endpoint=settings.endpoint, model=settings.model, prompt=system_prompt(settings.source, settings.target),
+            options=enabled_payload(settings.fields)), settings.api_key)
+
+    def _reuse_or_cancel_text_request(self, text: str, generation: int) -> None:
+        key = self._text_request_key(text) if text else None
+        with self._request_lock:
+            if generation != self._gen:
+                return
+            if key is not None and key == self._request_key:
+                return
+            previous = self._request_scope
+            self._request_scope = CancellationToken()
+            self._request_key = key
+        previous.cancel()
+
+    def _scopes_for(self, generation: int, *, key=None) -> tuple[CancellationToken, CancellationToken]:
+        with self._request_lock:
+            if generation != self._gen:
+                raise CancelledError()
+            if key is not None:
+                self._request_key = key
+            return self._request_scope, self._worker_scope
+
+    def translator(self, *, cancellation: CancellationToken | None = None,
+                   worker_cancellation: CancellationToken | None = None) -> Translator:
         settings = self.settings
         options = enabled_payload(settings.fields)
         provider = OpenAICompatibleProvider(
@@ -235,6 +286,8 @@ class App:
             source=settings.source,
             target=settings.target,
             optional_fields=options,
+            http=self._http,
+            cancellation=cancellation,
         )
         return Translator(
             provider,
@@ -244,6 +297,7 @@ class App:
             endpoint=settings.endpoint,
             model=settings.model,
             optional_fields=options,
+            cancellation=worker_cancellation,
         )
 
     def translate_text(self, text: str):
@@ -292,7 +346,7 @@ class App:
             shot = capture_shot()
             if shot is not None:
                 captured = True
-                self._gen += 1
+                self._next_generation()
                 self._last_shot, self._last_text, self._shot_page = shot, "", None
                 self._shot_context = deepcopy(self.settings)
         except Exception as exc:
@@ -354,7 +408,8 @@ class App:
             page = None
             if settings.shot_input == "ocr" or settings.shot_display == "overlay":
                 cached_page = self._shot_page
-                page = cached_page[1] if cached_page and cached_page[0] == settings.source else recognize(shot, settings.source)
+                page = cached_page[1] if cached_page and cached_page[0] == settings.source else recognize(
+                    shot, settings.source, cancelled=lambda: gen != self._gen)
                 if gen != self._gen:
                     return
                 self._shot_page = (settings.source, page)
@@ -368,11 +423,13 @@ class App:
                 self._push_shot({"seq": gen, "image": shot.data_url, "width": shot.selection.rect[2],
                                  "height": shot.selection.rect[3], "blocks": [], "busy": True,
                                  "model": settings.model, "status": "正在翻译…"})
+            request_scope, worker_scope = self._scopes_for(gen)
             provider = OpenAICompatibleProvider(endpoint=settings.endpoint, api_key=settings.api_key,
                 model=settings.model, source=settings.source, target=settings.target,
-                optional_fields=enabled_payload(settings.fields))
+                optional_fields=enabled_payload(settings.fields), http=self._http, cancellation=request_scope)
             result = translate_shot(shot, provider=provider, cache=self.cache, page=page,
-                input_mode=settings.shot_input, display=settings.shot_display, use_cache=use_cache)
+                input_mode=settings.shot_input, display=settings.shot_display, use_cache=use_cache,
+                cancellation=worker_scope)
             if gen != self._gen:
                 return
             if settings.shot_display == "overlay":
@@ -383,6 +440,8 @@ class App:
             else:
                 state.update(result=result.text, status="已缓存" if result.cached else "未缓存")
                 self._push(state, enter=False, reveal=False)
+        except CancelledError:
+            return
         except Exception as exc:
             if gen != self._gen:
                 return
@@ -457,7 +516,9 @@ class App:
             return False
         # A cancelled shot must not retire the translation already in flight.
         if not quiet_cancel:
-            self._gen += 1
+            # Identify the new selection before cancelling: repeating the
+            # same content should join its existing request, not restart it.
+            self._next_generation(keep_request=True)
         gen = self._gen
         try:
             try:
@@ -478,8 +539,9 @@ class App:
         self._last_shot = None
         self.hide_shot()
         if quiet_cancel:
-            self._gen += 1
+            self._next_generation(keep_request=True)
             gen = self._gen
+        self._reuse_or_cancel_text_request(text, gen)
         if not text:
             self._last_text = ""
             self._push(dict(self._error_state("", "未识别到文字"), seq=gen), enter=True)
@@ -522,7 +584,11 @@ class App:
     def _finish(self, text: str, gen: int, *, use_cache: bool = True) -> None:
         if gen != self._gen:
             return
-        translator = self.translator()
+        try:
+            request_scope, worker_scope = self._scopes_for(gen, key=self._text_request_key(text))
+            translator = self.translator(cancellation=request_scope, worker_cancellation=worker_scope)
+        except CancelledError:
+            return
         state = self._base_state(text)
         state.update({
             "from": language_label(translator.source),
@@ -534,6 +600,8 @@ class App:
         })
         try:
             result = translator.translate(text, use_cache=use_cache)
+        except CancelledError:
+            return
         except TranslationError as exc:
             state["status"] = str(exc)
             self._push(state, enter=False, reveal=False)
@@ -706,10 +774,38 @@ class App:
             from .platform_win import foreground
 
             foreground(hwnd)
+            # WinForms only focuses the browser automatically on its first
+            # Shown event. Reopening a hidden frameless form must restore
+            # keyboard focus too, otherwise mouse selection can work while
+            # copy/editing shortcuts are still delivered elsewhere.
+            control = self._webview_control(window)
+            if control is not None:
+                control.Focus()
             _boot(f"foreground {hwnd}")
         except Exception:
             log_error(traceback.format_exc())
             _boot("foreground-failed")
+        self._sync_outside_click_watch()
+
+    def _sync_outside_click_watch(self) -> None:
+        """Global mouse observation exists only while an outside click matters."""
+        if sys.platform != "win32":
+            return
+        module = sys.modules.get(f"{__package__}.shell_win")
+        shell = module.current_shell() if module is not None else None
+        if shell is None:
+            return
+
+        def visible(window):
+            return bool(getattr(getattr(window, "native", None), "Visible", False))
+
+        popup = (getattr(self, "_popup_requested", False) and not getattr(self, "_pinned", False)
+                 and visible(self._popup))
+        # Preparing the menu's first frame is asynchronous. An outside click
+        # must also cancel that pending presentation before the host is shown.
+        tray = self._tray_menu is not None and not getattr(self._tray_menu, "_intext_keep_hidden", True)
+        shell.set_outside_click_enabled(not getattr(self, "_quitting", False)
+            and not getattr(self, "_hold_show", False) and not getattr(self, "_preview", False) and (popup or tray))
 
     def _hide_native(self, window) -> None:
         native = getattr(window, "native", None)
@@ -719,6 +815,7 @@ class App:
         if window is self._settings_window:
             self._hide_settings_frame(native)
         native.Hide()
+        self._sync_outside_click_watch()
         if window is self._settings_window:
             self._hide_settings_frame(native)
 
@@ -838,12 +935,12 @@ class App:
             settings.shot_input = self._shot_context.shot_input
             settings.shot_display = self._shot_context.shot_display
             self._shot_context = settings
-            self._gen += 1
+            self._next_generation()
             self._start_shot(self._gen, settings, use_cache=use_cache)
             return
         if not self._last_text:
             return
-        self._gen += 1
+        self._next_generation()
         gen = self._gen
         self._push(self._pending_state(self._last_text), enter=False)
         threading.Thread(
@@ -856,7 +953,7 @@ class App:
     def open_input(self) -> None:
         self._last_shot = None
         self.hide_shot()
-        self._gen += 1
+        self._next_generation()
         self._last_text = ""
         state = self._base_state("")
         # The page retains its manual draft while hidden or showing results.
@@ -886,7 +983,7 @@ class App:
         elif self._last_shot is not None:
             self.retry(use_cache=True)
         elif self._last_text:
-            self._gen += 1
+            self._next_generation()
             gen = self._gen
             self._push(self._pending_state(self._last_text), enter=False)
             threading.Thread(target=self._finish, args=(self._last_text, gen), daemon=True).start()
@@ -904,7 +1001,7 @@ class App:
     def copy_text(self, text: str, *, report_failure: bool = True) -> bool:
         from .platform_win import set_clipboard_text
 
-        if not (text or "").strip():
+        if not text:
             return False
         ok = False
         try:
@@ -922,6 +1019,8 @@ class App:
 
     def set_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
+        if self._popup is not None:
+            self._on_ui(self._popup, self._sync_outside_click_watch)
         with self._settings_lock:
             self.settings.pinned = self._pinned
             try:
@@ -1031,7 +1130,7 @@ class App:
             self._sync_languages()
         self._last_shot = None
         self._last_text = result
-        self._gen += 1
+        self._next_generation()
         gen = self._gen
         self._push(self._pending_state(self._last_text), enter=False)
         threading.Thread(target=self._finish, args=(self._last_text, gen), daemon=True).start()
@@ -1288,12 +1387,15 @@ class App:
                 return
             payload["openSide"] = "right" if left >= x else "left"
             window._intext_keep_hidden = False
+            self._sync_outside_click_watch()
             task = control.ExecuteScriptAsync(_apply_script("window.intextTray.open", payload, "tray"))
 
             def prepared(completed) -> None:
                 try:
                     if completed.IsFaulted:
                         log_error(f"tray animation preparation failed: {completed.Exception}")
+                        if generation == self._tray_generation:
+                            self.hide_tray_menu()
                         return
 
                     def reveal() -> None:
@@ -1413,6 +1515,9 @@ class App:
         if self._quitting:
             return
         self._quitting = True
+        self._worker_scope.cancel()
+        self._request_scope.cancel()
+        self._http.close(wait=False)
         if sys.platform == "win32":
             from .shell_win import current_shell
 
@@ -1553,7 +1658,9 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
             app.retry()
 
         def copy_text(self, text):
-            return app.copy_text(text)
+            # The page reports clipboard failure without re-rendering and
+            # clearing the user's selection (the screenshot page does too).
+            return app.copy_text(text, report_failure=False)
 
         def set_pinned(self, pinned):
             app.set_pinned(pinned)
@@ -1815,6 +1922,11 @@ def _shell(app: App) -> None:
     def dispatch_shot() -> None:
         threading.Thread(target=app.on_shot, daemon=True).start()
 
+    def outside_click(x: int, y: int) -> None:
+        # Keep native window queries on the UI thread, and keep the shell's
+        # hook/message loop free to return subsequent input promptly.
+        app._on_ui(app._popup, lambda: app.dismiss_popup_if_outside(x, y))
+
     try:
         from .shell_win import run_shell
 
@@ -1830,7 +1942,7 @@ def _shell(app: App) -> None:
             on_quit=app.quit,
             on_theme=app.refresh_icons,
             on_hotkeys=app.note_hotkeys,
-            on_outside_click=app.dismiss_popup_if_outside,
+            on_outside_click=outside_click,
         )
     except Exception:
         log_error(traceback.format_exc())

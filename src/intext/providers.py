@@ -6,14 +6,10 @@ that body; it does not invent sampling or reasoning fields.
 
 from __future__ import annotations
 
-import http.client
-import json
-import re
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Protocol
 
+from .http_client import CancellationToken, _http_message, default_http_client
 from .translate import TranslationError, build_chat_body, extract_chat_text, messages_for
 
 
@@ -24,40 +20,8 @@ class HttpClient(Protocol):
         headers: dict[str, str],
         body: dict,
         timeout: float,
+        *, cancellation: CancellationToken | None = None,
     ) -> dict: ...
-
-
-class UrllibClient:
-    def post_json(
-        self,
-        url: str,
-        headers: dict[str, str],
-        body: dict,
-        timeout: float,
-    ) -> dict:
-        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                raw = response.read().decode("utf-8", errors="replace")
-        except urllib.error.HTTPError as exc:
-            try:
-                detail = exc.read().decode("utf-8", errors="replace")
-            except (OSError, http.client.HTTPException):
-                detail = ""
-            secret = headers.get("Authorization", "").removeprefix("Bearer ")
-            raise TranslationError(_http_message(exc.code, detail, secret=secret)) from exc
-        except TimeoutError as exc:
-            raise TranslationError("请求超时") from exc
-        except urllib.error.URLError as exc:
-            raise TranslationError("无法连接模型服务") from exc
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise TranslationError("模型返回的不是 JSON") from exc
-        if not isinstance(payload, dict):
-            raise TranslationError("模型返回的内容无法读取")
-        return payload
 
 
 class OpenAICompatibleProvider:
@@ -72,6 +36,7 @@ class OpenAICompatibleProvider:
         optional_fields: dict | None = None,
         http: HttpClient | None = None,
         timeout: float = 90.0,
+        cancellation: CancellationToken | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.api_key = api_key
@@ -79,13 +44,16 @@ class OpenAICompatibleProvider:
         self.source = source
         self.target = target
         self.optional_fields = optional_fields or {}
-        self.http = http or UrllibClient()
+        self.http = http or default_http_client()
         self.timeout = timeout
+        self.cancellation = cancellation
 
     def translate(self, text: str) -> str:
         return self.complete(messages_for(text, self.source, self.target))
 
     def complete(self, messages: list[dict]) -> str:
+        if self.cancellation is not None:
+            self.cancellation.check()
         if not self.endpoint.strip():
             raise TranslationError("未配置接口地址，请在设置中填写完整地址。")
         try:
@@ -108,21 +76,8 @@ class OpenAICompatibleProvider:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        payload = self.http.post_json(self.endpoint, headers, body, self.timeout)
+        if self.cancellation is None:
+            payload = self.http.post_json(self.endpoint, headers, body, self.timeout)
+        else:
+            payload = self.http.post_json(self.endpoint, headers, body, self.timeout, cancellation=self.cancellation)
         return extract_chat_text(payload)
-
-
-def _redact_secret(detail: str) -> str:
-    detail = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", detail)
-    return re.sub(r"\bsk-[A-Za-z0-9_\-]{8,}", "[redacted]", detail)
-
-
-def _http_message(status: int, detail: str, *, secret: str = "") -> str:
-    if secret:
-        detail = detail.replace(secret, "[redacted]")
-    compact = " ".join(_redact_secret(detail).split())
-    if len(compact) > 180:
-        compact = compact[:180] + "…"
-    if compact:
-        return f"模型请求失败（{status}）：{compact}"
-    return f"模型请求失败（{status}）"

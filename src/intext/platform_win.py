@@ -388,9 +388,12 @@ def send_ctrl_c_after_release(held: tuple[int, ...]) -> bool:
     return _send_inputs(events)
 
 
-def _inject_copy(timeout: float) -> bool:
+def _inject_copy(timeout: float, *, expected_focus: int | None = None) -> bool:
     """Insert Ctrl+C only as a clean chord. A zero SendInput count is not a copy."""
-    if modifiers_clear(timeout):
+    clear = modifiers_clear(timeout)
+    if expected_focus is not None and focused_hwnd() != expected_focus:
+        return False
+    if clear:
         return send_ctrl_c()
     held = _held_modifiers()
     if not held:
@@ -438,14 +441,14 @@ def focused_hwnd() -> int:
     return int(info.hwndFocus or info.hwndActive or 0)
 
 
-def copy_focused_control() -> tuple[str | None, bool]:
+def copy_focused_control(*, expected_focus: int | None = None) -> tuple[str | None, bool]:
     """Ask the focused control to copy.
 
     The second value is true when the message timed out. A late copy may still
     arrive, so the caller must not inject Ctrl+C in that case.
     """
     hwnd = focused_hwnd()
-    if not hwnd or not set_clipboard_text(_SENTINEL):
+    if not hwnd or (expected_focus is not None and hwnd != expected_focus) or not set_clipboard_text(_SENTINEL):
         return None, False
     result = ctypes.c_size_t()
     returned = _SendMessageTimeoutW(hwnd, WM_COPY, 0, 0, SMTO_ABORTIFHUNG, 200, ctypes.byref(result))
@@ -462,14 +465,18 @@ def _changed_text() -> str | None:
     return current.strip() or None
 
 
-def _await_clipboard(wait_s: float) -> str | None:
+def _await_clipboard(wait_s: float, *, expected_focus: int | None = None) -> str | None:
     deadline = time.monotonic() + wait_s
-    while time.monotonic() < deadline:
-        time.sleep(0.012)
+    while True:
+        if expected_focus is not None and focused_hwnd() != expected_focus:
+            return None
         found = _changed_text()
         if found:
             return found
-    return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(0.012, remaining))
 
 
 def _restore_clipboard(previous: str | None) -> bool:
@@ -500,12 +507,14 @@ def _restore_clipboard(previous: str | None) -> bool:
     return False
 
 
-def _copy_selection(wait_s: float, release_timeout: float) -> tuple[str | None, bool]:
+def _copy_selection(wait_s: float, release_timeout: float, *, expected_focus: int | None = None) -> tuple[str | None, bool]:
+    if expected_focus is not None and focused_hwnd() != expected_focus:
+        return None, False
     if not set_clipboard_text(_SENTINEL):
         return None, False
-    if not _inject_copy(release_timeout):
+    if not _inject_copy(release_timeout, expected_focus=expected_focus):
         return None, False
-    return _await_clipboard(wait_s), True
+    return _await_clipboard(wait_s, expected_focus=expected_focus), True
 
 
 class _AutomationReader:
@@ -567,23 +576,25 @@ def read_selected_text(wait_s: float = 0.6) -> str | None:
         return None
     previous = clipboard_text()
     try:
-        copied, timed_out = copy_focused_control()
+        copied, timed_out = copy_focused_control(expected_focus=initial_focus)
+        if focused_hwnd() != initial_focus:
+            return None
         if copied:
             return copied
         landed = _changed_text()
         if landed:
             return landed
         if timed_out:
-            return _await_clipboard(0.2)
+            return _await_clipboard(0.2, expected_focus=initial_focus)
         if not clipboard_safe_to_replace():
             return None
-        captured, sent = _copy_selection(wait_s, 0.35)
+        captured, sent = _copy_selection(wait_s, 0.35, expected_focus=initial_focus)
         if captured is None and not sent:
-            captured, sent = _copy_selection(0.35, 0.20)
+            captured, sent = _copy_selection(0.35, 0.20, expected_focus=initial_focus)
         if captured is None and sent:
             # The target may still be writing. Do not send another Ctrl+C over it.
-            captured = _await_clipboard(0.12)
-        return captured or _changed_text()
+            captured = _await_clipboard(0.12, expected_focus=initial_focus)
+        return (captured or _changed_text()) if focused_hwnd() == initial_focus else None
     finally:
         _restore_clipboard(previous)
 
@@ -1067,12 +1078,12 @@ def window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
 
 
-def install_outside_click_hook(callback) -> None:
+def install_outside_click_hook(callback) -> bool:
     """Report mouse clicks. The shell thread already runs a message loop."""
     global _OUTSIDE_HOOK, _OUTSIDE_PROC, _OUTSIDE_CALLBACK
     _OUTSIDE_CALLBACK = callback
     if _OUTSIDE_HOOK:
-        return
+        return True
     hook_proc = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
     call_next = ctypes.WINFUNCTYPE(
         ctypes.c_ssize_t, wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
@@ -1098,3 +1109,18 @@ def install_outside_click_hook(callback) -> None:
             log_error(f"outside-click hook failed {ctypes.get_last_error()}")
         except Exception:
             pass
+    return bool(_OUTSIDE_HOOK)
+
+
+def uninstall_outside_click_hook() -> bool:
+    """Called on the installing message-loop thread when no popup needs it."""
+    global _OUTSIDE_HOOK, _OUTSIDE_PROC, _OUTSIDE_CALLBACK
+    if _OUTSIDE_HOOK:
+        unhook = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HHOOK)(("UnhookWindowsHookEx", user32))
+        if not unhook(_OUTSIDE_HOOK):
+            from .config import log_error
+            log_error(f"outside-click unhook failed {ctypes.get_last_error()}")
+            _OUTSIDE_CALLBACK = None
+            return False
+    _OUTSIDE_HOOK = _OUTSIDE_PROC = _OUTSIDE_CALLBACK = None
+    return True

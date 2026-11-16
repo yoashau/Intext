@@ -72,7 +72,7 @@ class ShotTranslation:
 
 
 def translate_shot(shot: Screenshot, *, provider, cache, input_mode: str, display: str,
-                   page: OcrPage | None = None, use_cache: bool = True) -> ShotTranslation:
+                   page: OcrPage | None = None, use_cache: bool = True, cancellation=None) -> ShotTranslation:
     if not provider.model:
         raise TranslationError("还没有配置模型")
     if display == "overlay" and (page is None or not page.regions):
@@ -100,7 +100,7 @@ def translate_shot(shot: Screenshot, *, provider, cache, input_mode: str, displa
             parse_regions(text, page)
         return text
 
-    text, cached = cache.get_or_load(key, load, refresh=not use_cache)
+    text, cached = cache.get_or_load(key, load, refresh=not use_cache, cancellation=cancellation)
     regions = parse_regions(text, page) if display == "overlay" else {}
     readable = "\n".join(regions[r.id] for r in page.regions) if regions else text
     return ShotTranslation(readable, regions, cached)

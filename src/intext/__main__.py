@@ -39,11 +39,14 @@ def main(argv: list[str] | None = None) -> int:
         from .app import App
         from .translate import TranslationError
 
+        app = App()
         try:
-            result = App().translate_text(args.text)
+            result = app.translate_text(args.text)
         except TranslationError as exc:
             print(exc, file=sys.stderr)
             return 1
+        finally:
+            app._http.close()
         print(result.text)
         return 0
 

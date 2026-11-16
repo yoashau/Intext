@@ -1,6 +1,6 @@
 import threading
 import unittest
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from unittest.mock import patch
 
 from intext.cache import MemoryCache
@@ -8,6 +8,34 @@ from intext.translate import TranslationError, Translator
 
 
 class CacheConcurrencyTest(unittest.TestCase):
+    def test_new_waiter_recovers_when_the_previous_owner_is_cancelled(self):
+        cache = MemoryCache()
+        entered, release, joined = threading.Event(), threading.Event(), threading.Event()
+
+        class Pending(Future):
+            def result(self, timeout=None):
+                joined.set()
+                return super().result(timeout=3)
+
+        def old_load():
+            entered.set()
+            release.wait(3)
+            raise CancelledError()
+
+        with patch('intext.cache.Future', Pending), ThreadPoolExecutor(max_workers=2) as pool:
+            old = pool.submit(cache.get_or_load, 'same', old_load)
+            self.assertTrue(entered.wait(2))
+            new = pool.submit(cache.get_or_load, 'same', lambda: 'new result')
+            try:
+                self.assertTrue(joined.wait(2))
+            finally:
+                release.set()
+            with self.assertRaises(CancelledError):
+                old.result(timeout=2)
+            self.assertEqual(new.result(timeout=2), ('new result', False))
+        self.assertEqual(cache.get('same'), 'new result')
+        self.assertEqual(cache._pending, {})
+
     def translator(self, provider, cache):
         return Translator(
             provider, cache, source="en", target="zh",

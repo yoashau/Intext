@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from concurrent.futures import CancelledError
 from functools import lru_cache
 from pathlib import Path
 
@@ -53,14 +55,20 @@ def _engine(language: str):
     })
 
 
-def recognize(shot: Screenshot, source: str = "auto") -> OcrPage:
+def recognize(shot: Screenshot, source: str = "auto", *, cancelled: Callable[[], bool] | None = None) -> OcrPage:
     import numpy as np
 
     try:
+        if cancelled is not None and cancelled():
+            raise CancelledError()
         with _lock:
+            # A newer screenshot can supersede this job while another model
+            # invocation holds the lock. Do not run obsolete queued inference.
+            if cancelled is not None and cancelled():
+                raise CancelledError()
             # A model instance has mutable pre-processing state.
             output = _engine(recognition_model(source)[0])(np.asarray(shot.image())[:, :, ::-1].copy())
-    except TranslationError:
+    except (TranslationError, CancelledError):
         raise
     except Exception as exc:
         from .config import log_error

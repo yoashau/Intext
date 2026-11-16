@@ -75,7 +75,9 @@ window.intextShot = { apply(state) {
   } else languages.textContent = '截图翻译';
   const model = document.getElementById('model'); model.textContent = state.model || '设置模型'; model.dataset.tooltip = state.model || '请求设置';
   current = state;
-  if (state.image && String(state.image).startsWith('data:image/png;base64,')) image.src = state.image;
+  if (state.image && String(state.image).startsWith('data:image/png;base64,')) {
+    if (image.getAttribute('src') !== state.image) image.src = state.image;
+  }
   else image.removeAttribute('src');
   labels.replaceChildren();
   (state.blocks || []).forEach(block => {
@@ -105,7 +107,6 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { if (e.code === 'Space' && holdingOriginal) { e.preventDefault(); holdingOriginal = false; compare(comparisonPinned); } });
 window.addEventListener('blur', () => { holdingOriginal = false; compare(comparisonPinned); });
-document.querySelector('.head').addEventListener('mousedown', e => { if (e.button === 0 && !e.target.closest('button')) api('begin_drag'); });
 document.querySelector('.foot').addEventListener('click', e => {
   const button = e.target.closest('.iconbtn'); if (!button || button.disabled) return;
   clearTimeout(button.feedbackTimer); button.classList.add('is-clicked');

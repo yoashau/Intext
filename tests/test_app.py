@@ -12,6 +12,38 @@ from intext.translate import Translation
 
 
 class AppTests(unittest.TestCase):
+    def test_command_line_translation_closes_network_resources_on_success_or_error(self):
+        import io
+        from intext.__main__ import main
+        from intext.translate import TranslationError
+        for fails in (False, True):
+            with self.subTest(fails=fails):
+                instance = Mock()
+                if fails:
+                    instance.translate_text.side_effect = TranslationError('请求超时')
+                else:
+                    instance.translate_text.return_value = SimpleNamespace(text='译文')
+                with patch('intext.app.App', return_value=instance), \
+                     patch('sys.stdout', io.StringIO()), patch('sys.stderr', io.StringIO()):
+                    self.assertEqual(main(['--text', 'source']), 1 if fails else 0)
+                instance._http.close.assert_called_once_with()
+
+    def test_reopening_a_native_window_restores_browser_keyboard_focus(self):
+        native = Mock()
+        native.Handle.ToInt64.return_value = 123
+        window = SimpleNamespace(native=native)
+        control = Mock()
+        platform = SimpleNamespace(foreground=Mock())
+        with patch.dict(sys.modules, {'intext.platform_win': platform}), \
+             patch.object(self.app, '_webview_control', return_value=control), \
+             patch.object(self.app, '_sync_taskbar'), \
+             patch.object(self.app, '_reset_tooltip'):
+            App._show_native(self.app, window)
+            App._hide_native(self.app, window)
+            App._show_native(self.app, window)
+        self.assertEqual(control.Focus.call_count, 2)
+        self.assertEqual(platform.foreground.call_count, 2)
+
     def test_damaged_cache_does_not_prevent_startup_or_session_reuse(self):
         # Use a separate directory from this test's existing App connection.
         path = Path(os.environ['APPDATA']) / 'Intext' / 'damaged.sqlite'
@@ -156,6 +188,12 @@ class AppTests(unittest.TestCase):
             self.assertFalse(self.app.copy_text("译文"))
             self.assertEqual(push.call_args.args[0]["status"], "复制失败")
 
+    def test_copy_preserves_whitespace_only_selection(self):
+        write = Mock(return_value=True)
+        with patch.dict(sys.modules, {'intext.platform_win': SimpleNamespace(set_clipboard_text=write)}):
+            self.assertTrue(self.app.copy_text(' \n\t', report_failure=False))
+        write.assert_called_once_with(' \n\t')
+
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
@@ -164,6 +202,7 @@ class AppTests(unittest.TestCase):
         self.addCleanup(env.stop)
         self.app = App(Settings(model="m", source="en", target="zh"))
         self.addCleanup(self.app.cache.disk.close)
+        self.addCleanup(self.app._http.close)
         self.calls = []
         native = SimpleNamespace(Visible=True)
         self.app._popup = SimpleNamespace(native=native)
@@ -328,7 +367,7 @@ class AppTests(unittest.TestCase):
             self.app.settings.target = "en"
             return Translation("你好", False, "m")
 
-        self.app.translator = lambda: SimpleNamespace(
+        self.app.translator = lambda **_: SimpleNamespace(
             source="en", target="zh", model="m", translate=finish
         )
         self.app._finish("hello", 0)

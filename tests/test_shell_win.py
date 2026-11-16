@@ -21,6 +21,50 @@ class ShellTests(unittest.TestCase):
         self.assertEqual(result, 0)
         add.assert_called_once()
 
+    def test_idle_shell_does_not_install_a_mouse_hook_and_active_watch_is_scoped(self):
+        from intext import platform_win
+        self.shell.on_outside_click = Mock()
+        self.shell.hwnd = 123
+        with patch.object(platform_win, 'install_outside_click_hook', return_value=True) as install, \
+             patch.object(platform_win, 'uninstall_outside_click_hook') as uninstall, \
+             patch.object(self.module.user32, 'PostMessageW'):
+            self.shell._update_outside_watch()
+            install.assert_not_called()
+            self.shell.set_outside_click_enabled(True)
+            self.shell._wndproc(123, self.module.WM_OUTSIDE_WATCH, 0, 0)
+            install.assert_called_once_with(self.shell._post_outside_click)
+            self.assertTrue(self.shell._outside_active)
+            self.shell.set_outside_click_enabled(False)
+            self.shell._wndproc(123, self.module.WM_OUTSIDE_WATCH, 0, 0)
+            self.assertFalse(self.shell._outside_active)
+            self.assertEqual(uninstall.call_count, 2)
+
+    def test_hook_posts_click_instead_of_executing_application_code(self):
+        callback = Mock()
+        self.shell.on_outside_click = callback
+        self.shell.hwnd = 123
+        self.shell._outside_active = self.shell._outside_requested = True
+        with patch.object(self.module.user32, 'PostMessageW') as post:
+            self.shell._post_outside_click(-1920, -200)
+        callback.assert_not_called()
+        post.assert_called_once_with(123, self.module.WM_OUTSIDE_CLICK, (-1920) & 0xFFFFFFFF, -200)
+        self.shell._wndproc(123, self.module.WM_OUTSIDE_CLICK, (-1920) & 0xFFFFFFFF, -200)
+        callback.assert_called_once_with(-1920, -200)
+        self.shell._outside_requested = False
+        self.shell._wndproc(123, self.module.WM_OUTSIDE_CLICK, 10, 10)
+        callback.assert_called_once()
+
+    def test_failed_hotkey_registration_reports_immediately_and_retries_on_timer(self):
+        self.shell.hwnd = 123
+        with patch.object(self.shell, '_ensure_hotkey', side_effect=[('已被占用', 1409), ('', 0)]), \
+             patch.object(self.shell, '_register_one') as retry, \
+             patch.object(self.shell, '_log_registration'), \
+             patch.object(self.module.user32, 'SetTimer') as timer:
+            self.shell._register()
+        retry.assert_not_called()
+        self.assertEqual(self.shell.errors()['hotkeyError'], '已被占用')
+        timer.assert_called_once_with(123, self.module.ID_HOTKEY_RETRY, 200, None)
+
     def test_readding_icon_releases_the_old_handle_and_keeps_notification_version(self):
         self.shell.hwnd = 123
         self.shell._icon = 10

@@ -426,7 +426,9 @@
         window.intextMarkdown.render(document.getElementById("source"), state.source || "");
         const shotImage = document.getElementById('shot-image');
         shotImage.hidden = inputMode || !state.image;
-        if (state.image && String(state.image).startsWith('data:image/png;base64,')) shotImage.src=state.image;
+        if (state.image && String(state.image).startsWith('data:image/png;base64,')) {
+          if (shotImage.getAttribute('src') !== state.image) shotImage.src = state.image;
+        }
         else shotImage.removeAttribute('src');
         document.getElementById("source").lang = state.sourceLang || "";
         const modelButton = document.getElementById("model");

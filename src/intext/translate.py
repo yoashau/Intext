@@ -173,6 +173,7 @@ class Translator:
         endpoint: str,
         model: str,
         optional_fields: dict | None = None,
+        cancellation=None,
     ) -> None:
         self.provider = provider
         self.cache = cache
@@ -181,6 +182,7 @@ class Translator:
         self.endpoint = endpoint
         self.model = model
         self.optional_fields = optional_fields or {}
+        self.cancellation = cancellation
 
     def translate(self, text: str, *, use_cache: bool = True) -> Translation:
         cleaned = normalize_text(text)
@@ -206,5 +208,5 @@ class Translator:
                 raise TranslationError("模型没有返回译文")
             return result
 
-        result, cached = self.cache.get_or_load(key, load, refresh=not use_cache)
+        result, cached = self.cache.get_or_load(key, load, refresh=not use_cache, cancellation=self.cancellation)
         return Translation(text=result, cached=cached, model=self.model)

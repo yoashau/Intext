@@ -5,10 +5,28 @@ import unittest
 from pathlib import Path
 
 from intext.config import Settings, load_settings, save_settings
-from intext.screenshot import Selection, freehand_path, lasso_selection, mask_screenshot, rectangle_selection
+from intext.screenshot import Screenshot, Selection, freehand_path, lasso_selection, mask_screenshot, rectangle_selection
 
 
 class ScreenshotTests(unittest.TestCase):
+    def test_immutable_screenshot_reuses_its_lossless_data_url(self):
+        from unittest.mock import patch
+        from intext import screenshot
+        shot = Screenshot(b'png payload', Selection((0, 0, 10, 10), ()))
+        with patch.object(screenshot.base64, 'b64encode', wraps=screenshot.base64.b64encode) as encode:
+            self.assertEqual(shot.data_url, 'data:image/png;base64,cG5nIHBheWxvYWQ=')
+            self.assertEqual(shot.data_url, 'data:image/png;base64,cG5nIHBheWxvYWQ=')
+        encode.assert_called_once()
+
+    @unittest.skipUnless(importlib.util.find_spec('PIL'), 'requires Pillow')
+    def test_rectangle_export_keeps_every_pixel_without_modifying_source(self):
+        from PIL import Image
+        image = Image.effect_noise((60, 40), 80).convert('RGB')
+        original = image.tobytes()
+        selection = rectangle_selection((0, 0), (59, 39))
+        shot = mask_screenshot(image, selection)
+        self.assertEqual(shot.image().tobytes(), original)
+        self.assertEqual(image.tobytes(), original)
     def test_rectangle_drags_in_all_directions_and_on_negative_monitors(self):
         for start, end in (((10, 20), (110, 120)), ((110, 120), (10, 20)),
                            ((10, 120), (110, 20)), ((110, 20), (10, 120))):

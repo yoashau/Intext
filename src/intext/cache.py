@@ -9,11 +9,42 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future, InvalidStateError
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from .config import log_error
+
+if TYPE_CHECKING:
+    from .http_client import CancellationToken
+
+
+def _wait_for(pending: Future, cancellation: CancellationToken | None):
+    if cancellation is None:
+        return pending.result()
+    cancellation.check()
+    waiter = Future()
+
+    def relay(completed):
+        try:
+            result = completed.result()
+        except BaseException as exc:
+            try:
+                waiter.set_exception(exc)
+            except InvalidStateError:
+                pass  # This consumer already stopped waiting.
+        else:
+            try:
+                waiter.set_result(result)
+            except InvalidStateError:
+                pass
+
+    pending.add_done_callback(relay)
+    unsubscribe = cancellation.subscribe(waiter.cancel)
+    try:
+        return waiter.result()
+    finally:
+        unsubscribe()
 
 
 class LoadingCache:
@@ -30,22 +61,34 @@ class LoadingCache:
             return self.get(key)
 
     def get_or_load(
-        self, key: str, load: Callable[[], str], *, refresh: bool = False
+        self, key: str, load: Callable[[], str], *, refresh: bool = False,
+        cancellation: CancellationToken | None = None,
     ) -> tuple[str, bool]:
-        with self._pending_lock:
-            pending = None if refresh else self._pending.get(key)
-            if pending is None:
-                if not refresh:
-                    hit = self.get(key)
-                    if hit is not None and hit.strip():
-                        return hit, True
-                pending = Future()
-                self._pending[key] = pending
-                owner = True
-            else:
-                owner = False
-        if not owner:
-            return pending.result(), True
+        while True:
+            if cancellation is not None:
+                cancellation.check()
+            with self._pending_lock:
+                pending = None if refresh else self._pending.get(key)
+                if pending is None:
+                    if not refresh:
+                        hit = self.get(key)
+                        if hit is not None and hit.strip():
+                            return hit, True
+                    pending = Future()
+                    self._pending[key] = pending
+                    owner = True
+                else:
+                    owner = False
+            if owner:
+                break
+            try:
+                return _wait_for(pending, cancellation), True
+            except CancelledError:
+                if cancellation is not None:
+                    cancellation.check()
+                # A newer UI request for the same content must not inherit
+                # the cancelled owner's failure. Claim/join a fresh load.
+                continue
         try:
             result = load()
             with self._pending_lock:
@@ -105,6 +148,7 @@ class SqliteCache(LoadingCache):
                 )
                 """
             )
+            self._db.execute("CREATE INDEX IF NOT EXISTS translations_created ON translations(created DESC)")
             self._db.commit()
         except BaseException:
             self._db.close()
@@ -133,15 +177,14 @@ class SqliteCache(LoadingCache):
             self._db.execute(
                 """
                 DELETE FROM translations
-                WHERE key != ?
-                AND key NOT IN (
+                WHERE key IN (
                     SELECT key FROM translations
                     WHERE key != ?
                     ORDER BY created DESC
-                    LIMIT ?
+                    LIMIT -1 OFFSET ?
                 )
                 """,
-                (key, key, max(0, self._limit - 1)),
+                (key, max(0, self._limit - 1)),
             )
 
     def close(self) -> None:

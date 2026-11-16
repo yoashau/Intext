@@ -9,6 +9,27 @@ class WindowsSelectionTests(unittest.TestCase):
         from intext import platform_win
         self.platform = platform_win
 
+    def test_ready_clipboard_is_read_without_a_fixed_initial_delay(self):
+        with patch.object(self.platform, '_changed_text', return_value='ready'), \
+             patch.object(self.platform.time, 'sleep') as sleep:
+            self.assertEqual(self.platform._await_clipboard(0.6), 'ready')
+        sleep.assert_not_called()
+
+    def test_focus_change_while_waiting_for_hotkey_release_cannot_inject_copy(self):
+        with patch.object(self.platform, 'modifiers_clear', return_value=True), \
+             patch.object(self.platform, 'focused_hwnd', return_value=200), \
+             patch.object(self.platform, 'send_ctrl_c') as send, \
+             patch.object(self.platform, 'send_ctrl_c_after_release') as release:
+            self.assertFalse(self.platform._inject_copy(0.35, expected_focus=100))
+        send.assert_not_called()
+        release.assert_not_called()
+
+    def test_focus_change_during_clipboard_wait_abandons_stale_text(self):
+        with patch.object(self.platform, 'focused_hwnd', return_value=200), \
+             patch.object(self.platform, '_changed_text', return_value='stale') as read:
+            self.assertIsNone(self.platform._await_clipboard(0.6, expected_focus=100))
+        read.assert_not_called()
+
     def test_function_keys_match_the_keys_settings_can_record(self):
         for number in range(1, 13):
             _, vk = self.platform.parse_hotkey(f"ctrl+alt+f{number}")
@@ -168,6 +189,31 @@ class WindowsSelectionTests(unittest.TestCase):
         with patch.object(self.platform, "window_rect", return_value=(100, 100, 348, 260)):
             app.dismiss_tray_if_outside(10, 10)
         app.hide_tray_menu.assert_called_once()
+
+    def test_mouse_observation_is_only_needed_for_a_visible_dismissible_window(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from intext.app import App
+        from intext import shell_win
+
+        app = object.__new__(App)
+        app._popup = SimpleNamespace(native=SimpleNamespace(Visible=True))
+        app._tray_menu = SimpleNamespace(native=SimpleNamespace(Visible=False), _intext_keep_hidden=True)
+        app._popup_requested = True
+        app._pinned = app._quitting = app._hold_show = app._preview = False
+        shell = Mock()
+        with patch.object(shell_win, 'current_shell', return_value=shell):
+            app._sync_outside_click_watch()
+            self.assertTrue(shell.set_outside_click_enabled.call_args.args[0])
+            app._pinned = True
+            app._sync_outside_click_watch()
+            self.assertFalse(shell.set_outside_click_enabled.call_args.args[0])
+            app._tray_menu._intext_keep_hidden = False
+            app._sync_outside_click_watch()
+            self.assertTrue(shell.set_outside_click_enabled.call_args.args[0])
+            app._hold_show = True
+            app._sync_outside_click_watch()
+            self.assertFalse(shell.set_outside_click_enabled.call_args.args[0])
 
     def test_only_settings_can_have_a_taskbar_button(self):
         from types import SimpleNamespace

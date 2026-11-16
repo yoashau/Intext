@@ -1,4 +1,4 @@
-/* One tooltip surface for help text and action labels on both pages. */
+/* Shared controls, selection shortcuts and frameless-window interaction. */
 (function () {
   window.intextControls = {
     languageArrow(bidirectional = false) {
@@ -24,6 +24,49 @@
       if (next) next.focus();
     }
   };
+
+  // Use the same native clipboard path as the copy buttons, but copy only
+  // the current selection. Leave editable controls to the browser so cut,
+  // paste, undo and their selection semantics continue to work together.
+  document.addEventListener("keydown", function (event) {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+        !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey ||
+        !(event.code === "KeyC" || ["c", "insert"].includes(event.key.toLowerCase()))) return;
+    const editable = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+    if (event.target.closest(editable) || document.activeElement?.closest(editable)) return;
+    const text = window.getSelection()?.toString();
+    const api = window.pywebview && window.pywebview.api;
+    if (!text || !api || typeof api.copy_text !== "function") return;
+    event.preventDefault();
+    const announce = success => {
+      const status = document.getElementById("announcement");
+      if (status && window.getSelection()?.toString() === text)
+        status.textContent = success ? "已复制所选文字" : "复制失败，请重试";
+    };
+    // Capture the string before crossing the asynchronous bridge. A later
+    // selection or result update must not change what this shortcut copies.
+    try { Promise.resolve(api.copy_text(text)).then(announce, () => announce(false)); }
+    catch (_) { announce(false); }
+  });
+
+  // All frameless pages share one hit policy. The screenshot viewport's
+  // letterboxing is draggable; the image and selectable content are not.
+  const interactive = "input, textarea, select, option, button, a, [contenteditable], " +
+    "[role='button'], [role='menu'], [role='listbox'], .code, .resize, .choice, .switch, " +
+    ".keycap, .menu-pop, .result, .source, .content, .tip, .tooltip, .mac-thumb, #image-frame";
+  document.addEventListener("dragstart", function (event) { event.preventDefault(); });
+  document.addEventListener("mousedown", function (event) {
+    if (event.defaultPrevented || event.button !== 0) return;
+    const target = event.target;
+    if (!target.closest || target.closest(interactive) ||
+        !target.closest(".sheet, .head, .glass")) return;
+    // Also respect selectable elements introduced by future UI changes.
+    if (getComputedStyle(target).userSelect === "text") return;
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.begin_drag !== "function") return;
+    event.preventDefault();
+    api.begin_drag();
+  });
   const tooltip = document.createElement("div");
   tooltip.id = "tooltip";
   tooltip.className = "tooltip";

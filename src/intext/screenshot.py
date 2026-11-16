@@ -7,6 +7,7 @@ import io
 import math
 import sys
 from dataclasses import dataclass
+from functools import cached_property
 
 Point = tuple[int, int]
 
@@ -23,7 +24,7 @@ class Screenshot:
     png: bytes
     selection: Selection
 
-    @property
+    @cached_property
     def data_url(self) -> str:
         return "data:image/png;base64," + base64.b64encode(self.png).decode("ascii")
 
@@ -146,12 +147,15 @@ def mask_screenshot(image, selection: Selection, base: Point = (0, 0)) -> Screen
     from PIL import Image, ImageDraw
 
     x, y, width, height = selection.rect
-    crop = image.crop((x - base[0], y - base[1], x - base[0] + width, y - base[1] + height)).convert("RGB")
+    bounds = (x - base[0], y - base[1], x - base[0] + width, y - base[1] + height)
+    crop = image if bounds == (0, 0, *image.size) else image.crop(bounds)
+    if crop.mode != "RGB":
+        crop = crop.convert("RGB")
     if selection.freehand and sys.platform == "win32":
         from .capture_win import _mask_freehand
 
         crop = _mask_freehand(crop, selection.points)
-    else:
+    elif selection.freehand or selection.points != ((0, 0), (width-1, 0), (width-1, height-1), (0, height-1)):
         if selection.freehand:
             mask = _freehand_mask(crop.size, selection.points)
         else:

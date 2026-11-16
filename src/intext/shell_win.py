@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import ctypes
 import threading
-import time
 import traceback
 from collections.abc import Callable
 from ctypes import wintypes
@@ -47,6 +46,8 @@ NIM_MODIFY = 1
 NIM_DELETE = 2
 NIM_SETVERSION = 4
 WM_REBIND = 0x8003
+WM_OUTSIDE_WATCH = 0x8004
+WM_OUTSIDE_CLICK = 0x8005
 
 
 class WNDCLASSW(ctypes.Structure):
@@ -177,6 +178,8 @@ class Shell:
         self._published = None
         self._logged_state = None
         self._thread_id = None
+        self._outside_requested = False
+        self._outside_active = False
         self._stopped = threading.Event()
         self._taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
 
@@ -207,22 +210,49 @@ class Shell:
         self._add_icon()
         user32.SetTimer(self.hwnd, ID_ICON_CHECK, 3000, None)
         self._register()
-        if self.on_outside_click is not None:
-            from .platform_win import install_outside_click_hook
-
-            install_outside_click_hook(self.on_outside_click)
+        self._update_outside_watch()
         message = wintypes.MSG()
         try:
             while user32.GetMessageW(ctypes.byref(message), None, 0, 0) != 0:
                 user32.TranslateMessage(ctypes.byref(message))
                 user32.DispatchMessageW(ctypes.byref(message))
         finally:
+            from .platform_win import uninstall_outside_click_hook
+
+            self._outside_active = False
+            uninstall_outside_click_hook()
             user32.UnregisterHotKey(self.hwnd, 1)
             user32.UnregisterHotKey(self.hwnd, 2)
             self._remove_icon()
             if self.hwnd:
                 user32.DestroyWindow(self.hwnd)
             self._stopped.set()
+
+    def set_outside_click_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            enabled = bool(enabled and self.on_outside_click is not None)
+            if enabled == self._outside_requested:
+                return
+            self._outside_requested = enabled
+        if self.hwnd:
+            user32.PostMessageW(self.hwnd, WM_OUTSIDE_WATCH, 0, 0)
+
+    def _update_outside_watch(self) -> None:
+        from .platform_win import install_outside_click_hook, uninstall_outside_click_hook
+
+        with self._lock:
+            requested = self._outside_requested
+        if requested and not self._outside_active:
+            self._outside_active = install_outside_click_hook(self._post_outside_click)
+        elif not requested:
+            self._outside_active = False
+            uninstall_outside_click_hook()
+
+    def _post_outside_click(self, x: int, y: int) -> None:
+        # The low-level hook must return to the OS immediately. Window
+        # queries, Python/.NET transitions and dismissal run after it returns.
+        if self.hwnd and self._outside_active:
+            user32.PostMessageW(self.hwnd, WM_OUTSIDE_CLICK, x & 0xFFFFFFFF, y)
 
 
     def update_hotkeys(self, hotkey: str, shot_hotkey: str) -> dict[str, str]:
@@ -287,15 +317,9 @@ class Shell:
             self._registered_shot = None if error else spec
         return error, code
 
-    def _register(self, pause: bool = True) -> None:
+    def _register(self) -> None:
         self._hotkey_error, self._hotkey_code = self._ensure_hotkey(1, self.hotkey, "hotkey")
         self._shot_error, self._shot_code = self._ensure_hotkey(2, self.shot_hotkey, "shot")
-        if pause and (self._hotkey_error or self._shot_error):
-            time.sleep(0.2)
-            if self._hotkey_error:
-                self._hotkey_error, self._hotkey_code = self._register_one(1, self.hotkey)
-            if self._shot_error:
-                self._shot_error, self._shot_code = self._register_one(2, self.shot_hotkey)
         self._hotkey_ready = not self._hotkey_error
         self._shot_ready = not self._shot_error
         self._registered_hotkey = None if self._hotkey_error else self.hotkey
@@ -352,7 +376,9 @@ class Shell:
             return
         failed = bool(self._hotkey_error or self._shot_error)
         if failed and not self._retry_armed:
-            user32.SetTimer(self.hwnd, ID_HOTKEY_RETRY, 2000, None)
+            # A quick first retry covers another instance releasing the key.
+            # Subsequent retries are slower and never block the input loop.
+            user32.SetTimer(self.hwnd, ID_HOTKEY_RETRY, 200, None)
             self._retry_armed = True
         elif not failed and self._retry_armed:
             user32.KillTimer(self.hwnd, ID_HOTKEY_RETRY)
@@ -423,7 +449,15 @@ class Shell:
                     self._menu()
                 return 0
             if message == WM_TIMER and wparam == ID_HOTKEY_RETRY:
-                self._register(pause=False)
+                user32.SetTimer(self.hwnd, ID_HOTKEY_RETRY, 2000, None)
+                self._register()
+                return 0
+            if message == WM_OUTSIDE_WATCH:
+                self._update_outside_watch()
+                return 0
+            if message == WM_OUTSIDE_CLICK:
+                if self._outside_active and self._outside_requested and self.on_outside_click is not None:
+                    self.on_outside_click(ctypes.c_int32(wparam).value, ctypes.c_int32(lparam).value)
                 return 0
             if message == WM_TIMER and wparam == ID_ICON_CHECK:
                 if small_icon_size() != self._icon_size:
