@@ -26,10 +26,13 @@ button, img, svg { -webkit-user-drag: none; }
 .image-frame { border-radius: 12px; overflow: hidden; }
 #canvas { position: relative; flex-shrink: 0; }
 #image { display: block; width: 100%; height: 100%; user-select: none; }
-#labels { position: absolute; inset: 0; }
+#labels, #original-labels { position: absolute; inset: 0; }
 .region { position: absolute; display: block; padding: 0 1px; border: 0; border-radius: 1px; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; scrollbar-width: none; user-select: text; text-align: left; font-family: var(--font-interface); }
 .region::-webkit-scrollbar { display: none; }
 .region:focus-visible { background-image: linear-gradient(var(--control-selected), var(--control-selected)); }
+.original-region { padding: 0; overflow: hidden; line-height: 1; color: transparent; white-space: pre; cursor: text; }
+.original-region span { display: block; width: max-content; transform-origin: top left; }
+.original-region ::selection { color: transparent; background: rgba(64, 139, 240, .35); }
 #message { position: absolute; inset: 0; padding: 0; pointer-events: none; }
 #status { display: block; font-size: 16px; line-height: 1.5; font-weight: 450; color: var(--text-secondary); }
 .glass[data-state="error"] #status { color: var(--warning-ink); }

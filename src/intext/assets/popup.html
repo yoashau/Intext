@@ -71,12 +71,32 @@
       to { opacity: 1; transform: none; }
     }
     .row, .foot, .actions, .status-line { display: flex; align-items: center; }
+    .row, .foot { position: relative; z-index: 1; }
     .row { gap: 7px; min-height: 26px; flex: 0 0 auto; }
     .status-line { margin-left: auto; gap: 2px; min-width: 0; }
     .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .foot { margin-top: 12px; gap: 8px; flex: 0 0 auto; }
     .actions { gap: 4px; flex-shrink: 0; }
-    .content { min-height: 0; overflow: auto; margin-top: 13px; }
+    .content {
+      /* Borrow the gaps and 6px beneath the toolbars for the fade. Matching
+         padding keeps the first/last text and the panel's sizing unchanged. */
+      min-height: 0; overflow: auto;
+      margin-top: -6px; padding-top: 19px;
+      margin-bottom: -18px; padding-bottom: 18px;
+      --scroll-fade-top: 0px;
+      --scroll-fade-bottom: 0px;
+      mask-image: linear-gradient(to bottom,
+        transparent,
+        transparent calc(var(--scroll-fade-top) * .08),
+        rgba(0, 0, 0, .12) calc(var(--scroll-fade-top) * .28),
+        rgba(0, 0, 0, .55) calc(var(--scroll-fade-top) * .6),
+        #000 var(--scroll-fade-top),
+        #000 calc(100% - var(--scroll-fade-bottom)),
+        rgba(0, 0, 0, .55) calc(100% - var(--scroll-fade-bottom) * .6),
+        rgba(0, 0, 0, .12) calc(100% - var(--scroll-fade-bottom) * .28),
+        transparent calc(100% - var(--scroll-fade-bottom) * .08),
+        transparent);
+    }
     .lang, .swap, .help { flex-shrink: 0; }
     .lang { border-radius: 6px; padding: 3px 4px; margin: 0 -4px; }
     .lang:hover { color: var(--text-primary); }
@@ -539,7 +559,7 @@
       if (pinned || event.target.closest("#panel")) return;
       api("hide");
     });
-    if (window.intextScroll) window.intextScroll.mount(content, { inset: 0, size: 4, endInset: 4 });
+    if (window.intextScroll) window.intextScroll.mount(content, { inset: 0, size: 4, endInset: 22, fade: true });
     if (window.intextScroll) window.intextScroll.mount(input, { inset: 0, size: 4, endInset: 4 });
     if (window.intextScroll) window.intextScroll.mount(menu, { inset: 3, size: 3, endInset: 8, layer: 70 });
   </script>

@@ -61,6 +61,16 @@
     function place() {
       const yM = axis("y");
       const xM = axis("x");
+      if (options && options.fade) {
+        // Only fade an edge while it hides more content. Existing scroll and
+        // layout notifications update this; no polling or extra animation loop.
+        const depth = Math.min(28, yM.rect.height / 4);
+        const top = Math.max(0, scroller.scrollTop);
+        const bottom = Math.max(0, yM.overflow - top);
+        // scrollHeight/clientHeight round to whole pixels; scrollTop does not.
+        scroller.style.setProperty("--scroll-fade-top", (top > 1 ? Math.min(depth, top) : 0) + "px");
+        scroller.style.setProperty("--scroll-fade-bottom", (bottom > 1 ? Math.min(depth, bottom) : 0) + "px");
+      }
       if (yM.overflow > 4 && yM.rect.width > 0 && yM.rect.height > 0) {
         y.hidden = false;
         y.style.width = size + "px";
@@ -114,6 +124,8 @@
     }, { passive: true });
     document.addEventListener("scroll", schedulePlace, true);
     window.addEventListener("resize", schedulePlace);
+    scroller.addEventListener("load", schedulePlace, true);
+    if (document.fonts) document.fonts.ready.then(schedulePlace);
     if (window.ResizeObserver) new ResizeObserver(schedulePlace).observe(scroller);
     if (window.MutationObserver) {
       new MutationObserver(schedulePlace).observe(scroller, { childList: true, subtree: true, characterData: true });

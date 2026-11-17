@@ -4,11 +4,16 @@ let lastFit = null;
 const canvas = document.getElementById('canvas'), image = document.getElementById('image');
 const frame = document.getElementById('image-frame');
 const labels = document.getElementById('labels'), viewport = document.getElementById('viewport');
+const originalLabels = document.getElementById('original-labels');
 const original = document.getElementById('original'), retry = document.getElementById('retry'), copy = document.getElementById('copy');
 const announcement = document.getElementById('announcement'), panel = document.getElementById('panel');
 function api(name, ...args) { const bridge = window.pywebview && window.pywebview.api; if (bridge && typeof bridge[name] === 'function') return bridge[name](...args); }
 function compare(value) {
-  comparing = !!value; labels.hidden = comparing;
+  if (comparing !== !!value) {
+    const selection = window.getSelection();
+    if (selection && (canvas.contains(selection.anchorNode) || canvas.contains(selection.focusNode))) selection.removeAllRanges();
+  }
+  comparing = !!value; labels.hidden = comparing; originalLabels.hidden = !comparing;
   const hasImage = !!(current && String(current.image || '').startsWith('data:image/png;base64,'));
   frame.hidden = !hasImage || (!comparing && !!(current.busy || current.error));
   document.getElementById('message').hidden = comparing || !current || (!current.busy && !current.error);
@@ -30,9 +35,19 @@ function fit() {
   const width = viewport.clientWidth, height = viewport.clientHeight;
   const scale = Math.min(1, width / current.width, height / current.height);
   canvas.style.width = (current.width * scale) + 'px'; canvas.style.height = (current.height * scale) + 'px';
-  if (labels.hidden || frame.hidden) return;
-  if (lastFit && lastFit.state === current && lastFit.width === width && lastFit.height === height) return;
-  lastFit = {state: current, width, height};
+  if (frame.hidden) return;
+  if (lastFit && lastFit.state === current && lastFit.width === width && lastFit.height === height && lastFit.comparing === comparing) return;
+  lastFit = {state: current, width, height, comparing};
+  if (comparing) {
+    // OCR regions are individual lines. Stretch the invisible selectable text
+    // across the detected line so mouse selection follows the source pixels.
+    const originals = Array.from(originalLabels.children);
+    const heights = originals.map(el => el.clientHeight);
+    originals.forEach((el, i) => { el.style.fontSize = heights[i] + 'px'; });
+    const sizes = originals.map(el => ({el: el.firstElementChild, width: el.clientWidth, textWidth: el.firstElementChild.offsetWidth}));
+    sizes.forEach(r => { r.el.style.transform = 'scaleX(' + (r.textWidth ? r.width / r.textWidth : 1) + ')'; });
+    return;
+  }
   const regions = Array.from(labels.querySelectorAll('.region'), (el, index) => {
     const low = Math.max(7, 9 * scale);
     return {el, low, high: Math.max(low, Math.min(96, current.blocks[index].fontSize) * scale)};
@@ -79,11 +94,19 @@ window.intextShot = { apply(state) {
     if (image.getAttribute('src') !== state.image) image.src = state.image;
   }
   else image.removeAttribute('src');
+  lastFit = null;
   labels.replaceChildren();
+  originalLabels.replaceChildren();
   (state.blocks || []).forEach(block => {
     const el = document.createElement('span'); el.className = 'region'; el.tabIndex = 0; el.textContent = block.text; el.dataset.tooltip = block.text;
     for (const key of ['left', 'top', 'width', 'height']) el.style[key] = block[key] + '%';
     el.style.backgroundColor = block.background; el.style.color = block.color; labels.append(el);
+    if (block.original) {
+      const source = document.createElement('span'); source.className = 'region original-region'; source.tabIndex = 0;
+      const text = document.createElement('span'); text.textContent = block.original; source.append(text);
+      for (const key of ['left', 'top', 'width', 'height']) source.style[key] = block[key] + '%';
+      originalLabels.append(source);
+    }
   });
   compare(comparisonPinned || holdingOriginal); fit();
 } };
