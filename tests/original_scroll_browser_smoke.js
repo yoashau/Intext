@@ -4,7 +4,7 @@ async (page) => {
   const check = (ok, name) => { if (!ok) throw new Error(name); report[name] = true; };
   const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.bringToFront();
-  await page.emulateMedia({reducedMotion: 'reduce'});
+  await page.emulateMedia({reducedMotion: 'reduce', forcedColors: 'none'});
 
   for (const colorScheme of ['light', 'dark']) {
     await page.emulateMedia({colorScheme});
@@ -107,5 +107,23 @@ async (page) => {
     edges = await fade();
     check(edges.top === 0 && edges.bottom === 0 && await page.locator('#input').isEditable(), colorScheme + ' input mode remains readable');
   }
+  await page.emulateMedia({forcedColors: 'active', colorScheme: 'light'});
+  await page.goto(base + 'shot-overlay.html');
+  await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 360; canvas.height = 120;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 360, 120);
+    ctx.fillStyle = '#000'; ctx.font = '24px sans-serif'; ctx.fillText('Original words', 20, 50);
+    intextShot.apply({seq: 1, width: 360, height: 120, image: canvas.toDataURL(),
+      blocks: [{text: '译文', original: 'Original words', left: 5, top: 20, width: 60, height: 25, fontSize: 24, background: 'white', color: 'black'}]});
+    document.getElementById('original').click();
+  });
+  const sourcePixels = await page.locator('#canvas').screenshot();
+  await page.evaluate(() => { document.getElementById('original-labels').style.visibility = 'hidden'; });
+  const barePixels = await page.locator('#canvas').screenshot();
+  check(sourcePixels.equals(barePixels), 'high contrast keeps source selection transparent');
+  await page.evaluate(() => { document.getElementById('original-labels').style.visibility = ''; });
+  await page.locator('#original-labels .region').first().dblclick({position: {x: 18, y: 10}});
+  check((await page.evaluate(() => getSelection().toString())).length > 0, 'high contrast source text remains selectable');
+  await page.emulateMedia({forcedColors: 'none'});
   return report;
 }

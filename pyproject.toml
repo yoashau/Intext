@@ -1,6 +1,6 @@
 [project]
 name = "intext"
-version = "0.2.2"
+version = "0.2.3"
 description = "Windows selection translator"
 requires-python = ">=3.11"
 dependencies = ["httpx>=0.28,<1"]

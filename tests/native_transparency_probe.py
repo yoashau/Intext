@@ -100,7 +100,8 @@ def main() -> int:
 
             ui(prepare)
             for theme in ("light", "dark"):
-                for mode, view in (("input", popup), ("result", popup), ("tray", tray), ("screenshot", shot)):
+                for mode, view in (("input", popup), ("result", popup), ("result-long", popup),
+                                   ("tray", tray), ("screenshot", shot)):
                     emulate(view, theme)
                     if mode == "tray":
                         view.evaluate_js("intextTray.open({startup:true,openSide:'right'})")
@@ -123,7 +124,8 @@ def main() -> int:
                         if mode == "input":
                             state.update(mode="input", draft="Hello, world.")
                         else:
-                            state.update(mode="result", source="Original text.", result="翻译结果。")
+                            text = "翻译结果。" if mode == "result" else "较长的译文内容。\n\n" * 25
+                            state.update(mode="result", source="Original text.", result=text)
                         view.evaluate_js("intext.apply(" + json.dumps(state, ensure_ascii=False) + ")")
                     for color in ((35, 62, 91), (210, 130, 80)):
                         def show():
@@ -149,6 +151,14 @@ def main() -> int:
                             for x, y in points:
                                 p = bitmap.GetPixel(x, y)
                                 pixels.append((p.R, p.G, p.B))
+                            # Corners alone miss a shadow cut off along a window
+                            # edge, especially below a full-height panel.
+                            edges = ([(x, y) for x in range(0, native.Width, 8) for y in (0, native.Height - 1)] +
+                                     [(x, y) for y in range(0, native.Height, 8) for x in (0, native.Width - 1)])
+                            edge_error = 0
+                            for x, y in edges:
+                                p = bitmap.GetPixel(x, y)
+                                edge_error = max(edge_error, *(abs(a - b) for a, b in zip((p.R, p.G, p.B), color)))
                             inside = bitmap.GetPixel(native.Width // 3, native.Height // 3)
                             error = max(abs(a - b) for pixel in pixels for a, b in zip(pixel, color))
                             content_visible = sum(abs(a - b) for a, b in zip((inside.R, inside.G, inside.B), color)) > 40
@@ -157,9 +167,10 @@ def main() -> int:
                             bitmap.Dispose()
                             case = {"mode": mode, "theme": theme, "background": color,
                                     "outsidePixels": pixels, "maxOutsideError": error,
+                                    "maxEdgeError": edge_error,
                                     "contentVisible": content_visible, "screenshot": name}
                             report["cases"].append(case)
-                            if error > 2 or not content_visible:
+                            if error > 2 or edge_error > 2 or not content_visible:
                                 raise AssertionError(case)
                         ui(capture)
             report["passed"] = True

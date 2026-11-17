@@ -53,7 +53,7 @@
         inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.2)),
         inset 0 -1px 0 light-dark(rgba(80, 54, 32, 0.06), rgba(0, 0, 0, 0.35)),
         0 0 0 0.5px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08)),
-        0 16px 36px light-dark(rgba(72, 48, 28, 0.12), rgba(0, 0, 0, 0.42));
+        0 6px 14px light-dark(rgba(72, 48, 28, 0.10), rgba(0, 0, 0, 0.26));
     }
     .glass::before {
       content: "";
@@ -103,7 +103,8 @@
     #input {
       box-sizing: border-box; display: block; width: 100%; height: 120px; margin: 0;
       padding: 8px 10px; resize: none; border: 0;
-      background: light-dark(rgba(72, 48, 28, 0.035), rgba(255, 255, 255, 0.045));
+      --input-fill: light-dark(rgba(72, 48, 28, 0.035), rgba(255, 255, 255, 0.045));
+      background: var(--input-fill);
       box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.07), rgba(255, 255, 255, 0.08));
       color: inherit; font: inherit; font-size: 16px; line-height: 1.55;
       user-select: text; -webkit-user-select: text;
@@ -201,7 +202,11 @@
     @keyframes retry-turn { to { transform: rotate(360deg); } }
     .content { border-radius: 5px; }
     #input { border-radius: 10px; }
-    #input:focus-visible { background: var(--field-focus-fill); }
+    #input:focus {
+      background: var(--input-fill);
+      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.20), rgba(255, 255, 255, 0.22));
+    }
+    @media (forced-colors: active) { #input:focus { outline: 2px solid Highlight; outline-offset: 1px; } }
     .help[hidden] { display: none !important; }
     .help {
       position: relative;
