@@ -397,6 +397,23 @@ class AppTests(unittest.TestCase):
             self.app.retry()
         thread.assert_not_called()
 
+    def test_empty_selection_opens_input_without_reusing_a_previous_source(self):
+        for empty in (None, "", "  \n "):
+            with self.subTest(empty=empty):
+                self.app._last_text = "previous selection"
+                self.assertTrue(self.app._capture(lambda: empty))
+                self.assertEqual(self.app._last_text, "")
+                self.assertEqual(self.app._popup_state["mode"], "input")
+                self.assertEqual(self.app._popup_state["status"], "输入翻译")
+                self.assertEqual(self.app._popup_state["source"], "")
+
+    def test_selection_focus_change_does_not_open_the_input_over_another_app(self):
+        platform = SimpleNamespace(focused_hwnd=Mock(side_effect=[100, 200]), read_selected_text=Mock(return_value=None))
+        with patch.dict(sys.modules, {"intext.platform_win": platform}):
+            self.assertFalse(self.app._capture(self.app._read_selection))
+        self.assertEqual(self.calls, [])
+        self.assertIsNone(self.app._popup_state)
+
     def test_unconfigured_hotkey_only_opens_the_translation_popup(self):
         self.app.settings.model = ""
         self.app._read_selection = lambda: "selected text"
@@ -426,12 +443,57 @@ class AppTests(unittest.TestCase):
             self.app.submit_text("  First paragraph.\n\nSecond paragraph.  ")
         self.assertEqual(capture.call_args.args[0](), "First paragraph.\n\nSecond paragraph.")
 
+    def test_input_submission_reports_when_capture_cannot_start(self):
+        with patch.object(self.app, "_capture", return_value=False):
+            self.assertFalse(self.app.submit_text("text"))
+        self.assertFalse(self.app.submit_text("   "))
+
     def test_changing_input_language_preserves_the_draft(self):
         self.app.open_input()
         self.app.set_languages({"source": "auto", "target": "ja"})
         self.assertEqual(self.app._popup_state["mode"], "input")
         self.assertNotIn("draft", self.app._popup_state)
         self.assertEqual(self.app._popup_state["resultLang"], "ja")
+
+    def test_changing_languages_during_source_edit_keeps_the_result_without_retranslating(self):
+        self.app._last_text = "hello"
+        self.app._popup_state = self.app._result_state("hello", "你好", False)
+        with patch("intext.app.threading.Thread") as worker:
+            self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": self.app._gen})
+        worker.assert_not_called()
+        self.assertEqual(self.app._popup_state["mode"], "edit")
+        self.assertEqual(self.app._popup_state["source"], "hello")
+        self.assertEqual(self.app._popup_state["result"], "你好")
+        self.assertEqual(self.app._popup_state["resultLang"], "ja")
+        self.assertEqual(self.app._popup_state["status"], "输入翻译")
+
+    def test_changing_languages_while_editing_ocr_text_keeps_the_screenshot_context(self):
+        self.app._last_shot = object()
+        self.app._popup_state = self.app._result_state("recognized text", "译文", False)
+        self.app._popup_state["shot"] = True
+        with patch("intext.app.threading.Thread") as worker:
+            self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": self.app._gen})
+        worker.assert_not_called()
+        self.assertTrue(self.app._popup_state["shot"])
+        self.assertEqual(self.app._popup_state["source"], "recognized text")
+        self.assertEqual(self.app._popup_state["result"], "译文")
+
+    def test_stale_editor_actions_cannot_replace_a_newer_selection(self):
+        self.app._last_text = "new selection"
+        self.app._next_generation()
+        self.app._popup_state = self.app._result_state("new selection", "新译文", False)
+        generation = self.app._gen
+        with patch("intext.app.threading.Thread") as worker, patch("intext.app.save_settings") as save:
+            self.assertFalse(self.app.submit_text("old draft", expected_generation=generation - 1))
+            self.assertFalse(self.app.retry(use_cache=True, expected_generation=generation - 1))
+            self.assertFalse(self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": generation - 1}))
+        worker.assert_not_called()
+        save.assert_not_called()
+        self.assertEqual(self.app._gen, generation)
+        self.assertEqual(self.app.settings.target, "zh")
+        self.assertEqual(self.app._popup_state["source"], "new selection")
+        self.assertTrue(self.app._selecting.acquire(blocking=False))
+        self.app._selecting.release()
 
     def test_changing_result_language_retranslates_the_original_text(self):
         self.app._last_text = "hello"

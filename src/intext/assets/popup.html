@@ -53,7 +53,7 @@
         inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.2)),
         inset 0 -1px 0 light-dark(rgba(80, 54, 32, 0.06), rgba(0, 0, 0, 0.35)),
         0 0 0 0.5px light-dark(rgba(72, 48, 28, 0.08), rgba(255, 255, 255, 0.08)),
-        0 6px 14px light-dark(rgba(72, 48, 28, 0.10), rgba(0, 0, 0, 0.26));
+        0 0 14px light-dark(rgba(72, 48, 28, 0.08), rgba(0, 0, 0, 0.22));
     }
     .glass::before {
       content: "";
@@ -77,15 +77,8 @@
     .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .foot { margin-top: 12px; gap: 8px; flex: 0 0 auto; }
     .actions { gap: 4px; flex-shrink: 0; }
-    .content {
-      /* Borrow the gaps and 6px beneath the toolbars for the fade. Matching
-         padding keeps the first/last text and the panel's sizing unchanged. */
-      min-height: 0; overflow: auto;
-      margin-top: -6px; padding-top: 19px;
-      margin-bottom: -18px; padding-bottom: 18px;
-      --scroll-fade-top: 0px;
-      --scroll-fade-bottom: 0px;
-      mask-image: linear-gradient(to bottom,
+    .content, #input {
+      --scroll-fade-mask: linear-gradient(to bottom,
         transparent,
         transparent calc(var(--scroll-fade-top) * .08),
         rgba(0, 0, 0, .12) calc(var(--scroll-fade-top) * .28),
@@ -97,23 +90,37 @@
         transparent calc(100% - var(--scroll-fade-bottom) * .08),
         transparent);
     }
+    .content {
+      /* Borrow the gaps and 6px beneath the toolbars for the fade. Matching
+         padding keeps the first/last text and the panel's sizing unchanged. */
+      min-height: 0; overflow: auto;
+      margin-top: -6px; padding-top: 19px;
+      margin-bottom: -18px; padding-bottom: 18px;
+      --scroll-fade-top: 0px;
+      --scroll-fade-bottom: 0px;
+      mask-image: var(--scroll-fade-mask);
+    }
     .lang, .swap, .help { flex-shrink: 0; }
     .lang { border-radius: 6px; padding: 3px 4px; margin: 0 -4px; }
     .lang:hover { color: var(--text-primary); }
     #input {
-      box-sizing: border-box; display: block; width: 100%; height: 120px; margin: 0;
-      padding: 8px 10px; resize: none; border: 0;
-      --input-fill: light-dark(rgba(72, 48, 28, 0.035), rgba(255, 255, 255, 0.045));
-      background: var(--input-fill);
-      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.07), rgba(255, 255, 255, 0.08));
+      /* Extend the scroll edge into the toolbar gaps without moving the text. */
+      box-sizing: border-box; display: block; width: 100%; height: 57px; min-height: calc(1.55em + 32px); margin: -16px 0;
+      padding: 16px 0; resize: none; border: 0; border-radius: 0;
+      background: transparent; box-shadow: none;
       color: inherit; font: inherit; font-size: 16px; line-height: 1.55;
+      caret-color: var(--text-primary);
+      scroll-padding-block: 32px;
       user-select: text; -webkit-user-select: text;
+      --scroll-fade-top: 0px; --scroll-fade-bottom: 0px;
+      mask-image: var(--scroll-fade-mask);
     }
     #input::placeholder { color: var(--text-tertiary); }
+    #input.is-inline { margin-top: -8px; font-size: 14px; line-height: 1.55; color: var(--text-tertiary); scroll-margin-bottom: 2px; }
+    .edit-note { margin-top: 5px; font-size: 12px; color: var(--text-tertiary); scroll-margin-bottom: 18px; }
     .input-count { margin-top: 5px; text-align: right; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
     .input-count.is-invalid { color: var(--warning-ink); }
     [hidden] { display: none !important; }
-    .iconbtn.submit { color: var(--text-primary); width: auto; padding: 0 10px; flex-shrink: 0; white-space: nowrap; font-size: 13px; background: var(--control-selected); }
     .language-menu {
       position: fixed; z-index: 60; box-sizing: border-box; width: 142px;
       padding: 5px; overflow: auto;
@@ -157,6 +164,7 @@
       line-height: 1.55;
       color: var(--text-tertiary);
     }
+    .source:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
     button, img, svg { -webkit-user-drag: none; }
     .result, .source { user-select: text; -webkit-user-select: text; cursor: text; }
     button { background: transparent; border: 0; margin: 0; padding: 0; color: inherit; }
@@ -198,14 +206,18 @@
     .copy-check { display: none !important; }
     .is-copied .copy-check { display: block !important; }
     .is-copied .copy-pages { display: none; }
+    .submit-wait, .submit-retry { display: none !important; }
+    .submit:is(.is-busy, .is-failed) .submit-icon { display: none; }
+    .submit.is-busy .submit-wait, .submit.is-failed .submit-retry { display: block !important; }
+    /* Use the app mark with a toolbar-sized stroke. */
+    .submit .submit-icon { width: 16px; height: 16px; stroke-width: 1.25; }
+    .iconbtn.submit.is-busy { opacity: .75; }
+    .submit.is-busy .submit-wait { animation: retry-turn 900ms linear infinite; }
+    .iconbtn.submit.is-failed { color: var(--warning-ink); }
     #retry.is-busy svg { animation: retry-turn 900ms linear infinite; }
     @keyframes retry-turn { to { transform: rotate(360deg); } }
     .content { border-radius: 5px; }
-    #input { border-radius: 10px; }
-    #input:focus {
-      background: var(--input-fill);
-      box-shadow: inset 0 0 0 1px light-dark(rgba(72, 48, 28, 0.20), rgba(255, 255, 255, 0.22));
-    }
+    #input:focus { background: transparent; box-shadow: none; }
     @media (forced-colors: active) { #input:focus { outline: 2px solid Highlight; outline-offset: 1px; } }
     .help[hidden] { display: none !important; }
     .help {
@@ -224,7 +236,7 @@
       background: var(--control-pressed);
     }
     @media (prefers-reduced-motion: reduce) {
-      .glass.is-in, .result.is-settle, #retry.is-busy svg { animation: none; }
+      .glass.is-in, .result.is-settle, #retry.is-busy svg, .submit.is-busy .submit-wait { animation: none; }
       .iconbtn, .swap, .lang { transition: none; }
     }
   </style>
@@ -246,21 +258,33 @@
         </span>
       </div>
       <div class="content" id="content" tabindex="0" role="region" aria-label="原文与译文">
-        <textarea id="input" hidden aria-label="待翻译文字" aria-describedby="input-count" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
-        <div class="input-count" id="input-count" hidden role="status"></div>
         <div class="result" id="result" lang="zh"></div>
         <div class="source" id="source" lang="en"></div>
+        <textarea id="input" hidden aria-label="待翻译文字" aria-describedby="input-count" placeholder="输入或粘贴文字" spellcheck="false"></textarea>
+        <div class="input-count" id="input-count" hidden role="status"></div>
+        <div class="edit-note" id="edit-note" hidden>已修改，译文待更新</div>
         <img id="shot-image" class="source-image" alt="所选截图" hidden>
       </div>
       <div class="foot">
         <div class="actions">
-          <button type="button" class="iconbtn submit" id="submit" hidden data-tooltip="Ctrl+Enter">翻译</button>
+          <button type="button" class="iconbtn submit" id="submit" hidden aria-label="翻译" aria-keyshortcuts="Control+Enter" data-tooltip="翻译（Ctrl+Enter）">
+            <!-- Geometry from design/tray-icon.svg, shared by the app and tray icons. -->
+            <svg class="submit-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M 4 1 L 4.5 2 M 0.75 3.5 L 8.25 3.5 M 2.25 3.5 Q 3.25 7.5 7.5 9 M 6.75 3.5 Q 5.75 7.5 1.5 9"/>
+              <path d="M 7.75 14.5 L 10.75 7.25 Q 11.25 6.1 11.75 7.25 L 14.75 14.5 M 9 11.5 L 13.5 11.5"/>
+            </svg>
+            <svg class="submit-wait" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5a6.5 6.5 0 1 1-6.3 8"/></svg>
+            <svg class="submit-retry" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6.5 6.5 0 1 0-.4 5M16 4.5V8h-3.5"/></svg>
+          </button>
           <button type="button" class="iconbtn" id="retry" aria-label="再译" data-tooltip="再译">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6.5 6.5 0 1 0-.4 5M16 4.5V8h-3.5"/></svg>
           </button>
           <button type="button" class="iconbtn" id="copy" aria-label="复制" data-tooltip="复制">
             <svg class="copy-pages" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M5 13a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2"/></svg>
             <svg class="copy-check" viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10 3.7 3.7 7.3-7.4"/></svg>
+          </button>
+          <button type="button" class="iconbtn" id="cancel-edit" hidden aria-label="取消修改" data-tooltip="取消修改（Esc）">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8M14 6l-8 8"/></svg>
           </button>
           <button type="button" class="iconbtn" id="pin" aria-label="固定" data-tooltip="固定" aria-pressed="false">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path class="pin-head" d="M7 3h6l-1 4.5 2 2.5v2H6v-2l2-2.5Z"/><path d="M10 12v5"/></svg>
@@ -283,11 +307,15 @@
     let copyTimer = 0;
     const panel = document.getElementById("panel");
     const result = document.getElementById("result");
+    const source = document.getElementById("source");
     const help = document.getElementById("status-help");
     const tip = document.getElementById("status-tip");
     const content = document.getElementById("content");
     const input = document.getElementById("input");
     const menu = document.getElementById("languages");
+    const submitButton = document.getElementById("submit");
+    const cancelEditButton = document.getElementById("cancel-edit");
+    const editNote = document.getElementById("edit-note");
     const copyButton = document.getElementById("copy");
     const retryButton = document.getElementById("retry");
     const pinButton = document.getElementById("pin");
@@ -295,40 +323,108 @@
     document.getElementById("swap").append(window.intextControls.languageArrow(true));
     const languages = { auto: "自动", zh: "简体中文", en: "英语", ja: "日语", ko: "韩语", fr: "法语", de: "德语", es: "西班牙语", ru: "俄语" };
     let sourceCode = "auto", targetCode = "zh", inputMode = false, submitting = false;
-    let menuAnchor = null;
+    let editingSource = false, editSnapshot = null, lastState = null, languageSync = false, standaloneDraft = "";
+    let menuAnchor = null, sourcePointer = null;
+
+    function updateEditNote() {
+      const changed = editingSource && editSnapshot &&
+        (input.value !== editSnapshot.text || sourceCode !== editSnapshot.source || targetCode !== editSnapshot.target);
+      editNote.hidden = !(changed && lastState && lastState.result);
+    }
+
+    function sizeInput() {
+      if (!inputMode) { input.style.removeProperty("height"); return; }
+      input.style.height = "0px";
+      input.style.height = Math.min(152, input.scrollHeight) + "px";
+    }
+
+    function keepEditorVisible() {
+      if (editingSource) (editNote.hidden ? input : editNote).scrollIntoView({ block: "nearest" });
+    }
 
     function validateInput() {
       // Count Unicode code points after the same normalization as translate.py.
       const length = Array.from(input.value.replace(/\r\n?/g, "\n").normalize("NFC").trim()).length;
       const invalid = length > 8000; // translate.MAX_TEXT_CHARS
       const counter = document.getElementById("input-count");
-      counter.hidden = !inputMode;
+      counter.hidden = !inputMode || length < 7200;
       counter.textContent = length + " / 8000";
       counter.classList.toggle("is-invalid", invalid);
       if (invalid) input.setAttribute("aria-invalid", "true");
       else input.removeAttribute("aria-invalid");
-      document.getElementById("submit").disabled = submitting || !length || invalid;
+      submitButton.disabled = submitting || languageSync || !length || invalid;
+      cancelEditButton.disabled = languageSync || submitting;
+      updateEditNote();
       return length > 0 && !invalid;
     }
 
+    function syncEditor() {
+      const standalone = inputMode && !editingSource;
+      input.hidden = !inputMode;
+      input.classList.toggle("is-inline", editingSource);
+      source.hidden = inputMode;
+      result.hidden = standalone;
+      retryButton.hidden = inputMode;
+      copyButton.hidden = standalone;
+      submitButton.hidden = !inputMode;
+      cancelEditButton.hidden = !editingSource;
+      document.getElementById('shot-image').hidden = standalone || !(lastState && lastState.image);
+      document.getElementById("swap").disabled = inputMode || !lastState || !lastState.result ||
+        lastState.status === "正在翻译" || lastState.status === "正在识别";
+      validateInput();
+      sizeInput();
+    }
+
+    function editSource(offset) {
+      if (inputMode || !source.dataset.editable) return;
+      editSnapshot = {text: source.dataset.raw || "", source: sourceCode, target: targetCode};
+      editingSource = inputMode = true;
+      input.value = editSnapshot.text;
+      setSubmitState("ready");
+      syncEditor();
+      input.focus({ preventScroll: true });
+      const caret = Number.isInteger(offset) ? Math.min(offset, input.value.length) : input.value.length;
+      input.setSelectionRange(caret, caret);
+      keepEditorVisible();
+    }
+
+    function cancelSourceEdit() {
+      if (!editingSource || languageSync || submitting) return;
+      const changedLanguages = sourceCode !== editSnapshot.source || targetCode !== editSnapshot.target;
+      editingSource = inputMode = false;
+      editSnapshot = null;
+      setSubmitState("ready");
+      syncEditor();
+      source.focus({ preventScroll: true });
+      if (changedLanguages) api("retry_after_edit", appliedSeq);
+    }
+
+    function setSubmitState(state) {
+      const label = state === "busy" ? "提交中…" : state === "failed" ? "重试翻译" : "翻译";
+      submitButton.classList.toggle("is-busy", state === "busy");
+      submitButton.classList.toggle("is-failed", state === "failed");
+      submitButton.setAttribute("aria-label", label);
+      submitButton.setAttribute("aria-busy", String(state === "busy"));
+      submitButton.dataset.tooltip = state === "busy" ? label : label + "（Ctrl+Enter）";
+    }
+
     async function submitInput() {
-      if (submitting || !validateInput()) return;
+      if (submitting || languageSync || !validateInput()) return;
       const seq = appliedSeq;
-      const button = document.getElementById("submit");
       submitting = true;
-      button.textContent = "提交中…";
+      setSubmitState("busy");
       validateInput();
       let failed = false;
       try {
         const bridge = window.pywebview && window.pywebview.api;
         if (!bridge || typeof bridge.submit_text !== "function") throw new Error("bridge unavailable");
-        await api("submit_text", input.value);
+        if (await api("submit_text", input.value, seq) === false) throw new Error("submission not started");
       } catch (error) {
         failed = true;
       } finally {
         if (seq === appliedSeq && inputMode) {
           submitting = false;
-          button.textContent = failed ? "重试" : "翻译";
+          setSubmitState(failed ? "failed" : "ready");
           announcement.textContent = failed ? "提交失败，请重试" : "";
           validateInput();
         }
@@ -341,7 +437,16 @@
       menuAnchor = null;
     }
 
+    function showLanguageCodes() {
+      for (const [id, code, label] of [["from", sourceCode, "原文"], ["to", targetCode, "译文"]]) {
+        const button = document.getElementById(id), name = languages[code] || code;
+        button.textContent = name;
+        button.setAttribute("aria-label", label + "语言：" + name);
+      }
+    }
+
     function chooseLanguage(kind, anchor) {
+      if (languageSync || submitting) return;
       if (!menu.hidden && menuAnchor === anchor) { closeLanguages(); return; }
       closeLanguages();
       menuAnchor = anchor;
@@ -366,7 +471,31 @@
           closeLanguages();
           if (kind === "reverse") api("swap", code);
           else if (code !== (kind === "source" ? sourceCode : targetCode)) {
-            api("set_languages", { source: kind === "source" ? code : sourceCode, target: kind === "target" ? code : targetCode });
+            const next = { source: kind === "source" ? code : sourceCode, target: kind === "target" ? code : targetCode };
+            if (editingSource) {
+              const previous = {source: sourceCode, target: targetCode};
+              const snapshot = editSnapshot;
+              sourceCode = next.source; targetCode = next.target;
+              showLanguageCodes();
+              languageSync = true;
+              validateInput();
+              const failed = () => {
+                if (!editingSource || editSnapshot !== snapshot) return;
+                sourceCode = previous.source; targetCode = previous.target;
+                showLanguageCodes();
+                announcement.textContent = "语言设置失败，请重试";
+              };
+              try {
+                const pending = api("set_languages", {...next, editing: true, editSeq: appliedSeq});
+                if (!pending) throw new Error("bridge unavailable");
+                Promise.resolve(pending).then(ok => { if (ok === false) throw new Error("stale edit"); })
+                  .catch(failed).finally(() => { languageSync = false; validateInput(); });
+              } catch (_) {
+                failed();
+                languageSync = false;
+                validateInput();
+              }
+            } else api("set_languages", next);
           }
           anchor.focus({ preventScroll: true });
         });
@@ -422,7 +551,8 @@
 
     window.intext = {
       apply(state) {
-        const changed = state.seq !== appliedSeq || document.getElementById("source").dataset.raw !== (state.source || "");
+        const changed = state.seq !== appliedSeq || source.dataset.raw !== (state.source || "");
+        const sameSequence = typeof state.seq !== "number" || state.seq === appliedSeq;
         if (typeof state.seq === "number") {
           if (state.seq < appliedSeq) return;
           appliedSeq = state.seq;
@@ -432,30 +562,40 @@
         sourceCode = state.sourceLang || "auto";
         targetCode = state.resultLang || "zh";
         const wasInput = inputMode;
-        inputMode = state.mode === "input";
-        submitting = false;
-        document.getElementById("submit").textContent = "翻译";
-        input.hidden = !inputMode;
-        result.hidden = inputMode;
-        document.getElementById("source").hidden = inputMode;
-        document.getElementById("retry").hidden = inputMode;
-        document.getElementById("copy").hidden = inputMode;
-        document.getElementById("submit").hidden = !inputMode;
-        if (inputMode && Object.hasOwn(state, "draft")) input.value = state.draft;
-        validateInput();
-        if (inputMode && (!wasInput || state.enter)) input.focus({ preventScroll: true });
+        const wasStandalone = inputMode && !editingSource;
+        editingSource = editingSource && state.mode !== "input" && (sameSequence || state.mode === "edit");
+        inputMode = state.mode === "input" || editingSource;
+        lastState = state;
+        if (!(submitting && sameSequence && inputMode)) {
+          submitting = false;
+          setSubmitState("ready");
+        }
+        if (inputMode && !editingSource) {
+          if (Object.hasOwn(state, "draft")) standaloneDraft = String(state.draft || "");
+          if (!wasStandalone || state.enter || Object.hasOwn(state, "draft")) input.value = standaloneDraft;
+        }
         document.getElementById("from").textContent = state.from || "";
         document.getElementById("to").textContent = state.to || "";
         document.getElementById("from").setAttribute("aria-label", "原文语言：" + (state.from || "自动"));
         document.getElementById("to").setAttribute("aria-label", "译文语言：" + (state.to || ""));
-        window.intextMarkdown.render(document.getElementById("source"), state.source || "");
+        window.intextMarkdown.render(source, state.source || "");
+        const canEditSource = !!state.source && !(state.shot && state.image && state.source === "图片直译");
+        if (canEditSource) {
+          source.dataset.editable = "true";
+          source.dataset.tooltip = "点击编辑原文";
+          source.tabIndex = 0;
+          source.setAttribute("role", "button");
+          source.setAttribute("aria-description", "按 Enter 编辑原文");
+        } else {
+          delete source.dataset.editable; delete source.dataset.tooltip;
+          source.removeAttribute("tabindex"); source.removeAttribute("role"); source.removeAttribute("aria-description");
+        }
         const shotImage = document.getElementById('shot-image');
-        shotImage.hidden = inputMode || !state.image;
         if (state.image && String(state.image).startsWith('data:image/png;base64,')) {
           if (shotImage.getAttribute('src') !== state.image) shotImage.src = state.image;
         }
         else shotImage.removeAttribute('src');
-        document.getElementById("source").lang = state.sourceLang || "";
+        source.lang = state.sourceLang || "";
         const modelButton = document.getElementById("model");
         modelButton.textContent = state.model || "设置模型";
         modelButton.dataset.tooltip = state.model || "请求设置";
@@ -474,7 +614,6 @@
         retryButton.classList.toggle("is-busy", busy);
         document.getElementById("retry").disabled = busy || (!state.source && !state.shot);
         document.getElementById("copy").disabled = !state.result;
-        document.getElementById("swap").disabled = busy || !state.result;
         const displayResult = state.result || (busy ? message + "…" : failure ? (message.length <= 12 ? message : "请求失败") : "");
         if (result.dataset.raw !== displayResult) {
           window.intextMarkdown.render(result, displayResult);
@@ -489,14 +628,17 @@
         }
         pinned = !!state.pinned;
         syncPin();
-        if (changed) content.scrollTop = 0;
+        syncEditor();
+        if (editingSource && document.activeElement === input) keepEditorVisible();
+        if (inputMode && !editingSource && (!wasInput || state.enter)) input.focus({ preventScroll: true });
+        if (changed && !editingSource) content.scrollTop = 0;
       }
     };
 
-    function api(name, arg) {
+    function api(name, ...args) {
       const bridge = window.pywebview && window.pywebview.api;
       if (bridge && typeof bridge[name] === "function") {
-        return arguments.length > 1 ? bridge[name](arg) : bridge[name]();
+        return bridge[name](...args);
       }
     }
     panel.addEventListener("click", function (event) {
@@ -530,10 +672,44 @@
     ["from", "to"].forEach(function (id) {
       document.getElementById(id).addEventListener("click", function () { chooseLanguage(id === "from" ? "source" : "target", this); });
     });
-    input.addEventListener("input", validateInput);
+    source.addEventListener("pointerdown", function (event) {
+      if (event.button === 0) sourcePointer = {id: event.pointerId, x: event.clientX, y: event.clientY, moved: false};
+    });
+    document.addEventListener("pointermove", function (event) {
+      if (sourcePointer && event.pointerId === sourcePointer.id &&
+          Math.hypot(event.clientX - sourcePointer.x, event.clientY - sourcePointer.y) > 4) sourcePointer.moved = true;
+    }, {passive: true});
+    document.addEventListener("pointercancel", function (event) {
+      if (sourcePointer && event.pointerId === sourcePointer.id) sourcePointer = null;
+    });
+    source.addEventListener("click", function (event) {
+      if (event.button !== 0 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const gesture = sourcePointer; sourcePointer = null;
+      if (gesture && gesture.moved) return;
+      const selection = window.getSelection();
+      if (!gesture && selection && !selection.isCollapsed && selection.toString()) return;
+      let offset;
+      const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(event.clientX, event.clientY);
+      if (caret && source.contains(caret.startContainer)) {
+        const range = document.createRange();
+        range.selectNodeContents(source); range.setEnd(caret.startContainer, caret.startOffset);
+        const before = range.toString();
+        if ((source.dataset.raw || "").startsWith(before)) offset = before.length;
+      }
+      editSource(offset);
+    });
+    source.addEventListener("keydown", function (event) {
+      if (event.target !== source || event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Enter" || event.key === "F2") { event.preventDefault(); editSource(); }
+    });
+    input.addEventListener("input", function () {
+      if (inputMode && !editingSource) standaloneDraft = input.value;
+      validateInput(); sizeInput(); keepEditorVisible();
+    });
     document.getElementById("submit").addEventListener("click", submitInput);
+    cancelEditButton.addEventListener("click", cancelSourceEdit);
     input.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && event.ctrlKey && !event.isComposing && validateInput()) {
+      if (event.key === "Enter" && event.ctrlKey && !event.isComposing && event.keyCode !== 229 && validateInput()) {
         event.preventDefault(); submitInput();
       }
     });
@@ -545,6 +721,7 @@
         if (anchor) anchor.focus({ preventScroll: true });
         event.preventDefault(); return;
       }
+      if (event.key === "Escape" && editingSource) { event.preventDefault(); cancelSourceEdit(); return; }
       if (event.key === "Escape") api("hide");
     });
     document.addEventListener("pointerdown", function (event) {
@@ -565,7 +742,7 @@
       api("hide");
     });
     if (window.intextScroll) window.intextScroll.mount(content, { inset: 0, size: 4, endInset: 22, fade: true });
-    if (window.intextScroll) window.intextScroll.mount(input, { inset: 0, size: 4, endInset: 4 });
+    if (window.intextScroll) window.intextScroll.mount(input, { inset: 0, size: 4, endInset: 4, fade: true });
     if (window.intextScroll) window.intextScroll.mount(menu, { inset: 3, size: 3, endInset: 8, layer: 70 });
   </script>
 </body>

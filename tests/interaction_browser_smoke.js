@@ -47,16 +47,78 @@ async (page) => {
     button.click(); button.click();
     input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true}));
     input.dispatchEvent(new Event('input', {bubbles: true}));
-    const pending = calls === 1 && button.disabled && button.textContent === '提交中…';
+    const pending = calls === 1 && button.disabled && button.getAttribute('aria-label') === '提交中…' &&
+      getComputedStyle(button.querySelector('.submit-wait')).display !== 'none';
     rejectSubmit(new Error('bridge unavailable'));
     await Promise.resolve();
-    const recovered = !button.disabled && button.textContent === '重试' && input.value === 'draft to keep';
+    const recovered = !button.disabled && button.getAttribute('aria-label') === '重试翻译' &&
+      getComputedStyle(button.querySelector('.submit-retry')).display !== 'none' && input.value === 'draft to keep';
     window.pywebview.api.submit_text = async () => { calls++; };
     button.click();
     await Promise.resolve();
-    return {pending, recovered, retry: calls === 2 && button.textContent === '翻译'};
+    const retry = calls === 2 && button.getAttribute('aria-label') === '翻译' &&
+      getComputedStyle(button.querySelector('.submit-icon')).display !== 'none';
+    const shortcut = new KeyboardEvent('keydown', {key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true});
+    input.dispatchEvent(shortcut);
+    await Promise.resolve();
+    return {pending, recovered, retry, shortcut: shortcut.defaultPrevented && calls === 3};
   });
   Object.entries(submission).forEach(([key, value]) => check(value, 'submission ' + key));
+  const size = await page.evaluate(() => {
+    const button = document.getElementById('submit'), pin = document.getElementById('pin');
+    return button.clientWidth === pin.clientWidth && button.clientHeight === pin.clientHeight &&
+      getComputedStyle(button).backgroundColor === getComputedStyle(pin).backgroundColor &&
+      button.getAttribute('aria-keyshortcuts') === 'Control+Enter';
+  });
+  check(size, 'submit icon matches toolbar size and surface and exposes shortcut');
+  const optical = await page.evaluate(() => {
+    const metrics = svg => {
+      const paths = [...svg.querySelectorAll('path')].map(path => path.getBBox());
+      const height = (Math.max(...paths.map(box => box.y + box.height)) - Math.min(...paths.map(box => box.y))) *
+        svg.clientHeight / svg.viewBox.baseVal.height;
+      const stroke = parseFloat(getComputedStyle(svg).strokeWidth) * svg.clientWidth / svg.viewBox.baseVal.width;
+      return {height, stroke};
+    };
+    return [metrics(document.querySelector('#submit .submit-icon')), metrics(document.querySelector('#pin svg'))];
+  });
+  check(Math.abs(optical[0].height - optical[1].height) < 2 && Math.abs(optical[0].stroke - optical[1].stroke) < .2,
+    'submit icon has a matching visual height and line weight');
+  const sameMark = await page.evaluate(async () => {
+    const source = new DOMParser().parseFromString(await (await fetch('/design/tray-icon.svg')).text(), 'image/svg+xml');
+    const paths = node => [...node.querySelectorAll('path')].map(path => path.getAttribute('d').trim().replace(/\s+/g, ' '));
+    return JSON.stringify(paths(document.querySelector('#submit .submit-icon'))) === JSON.stringify(paths(source));
+  });
+  check(sameMark, 'submit uses the application icon geometry');
+  const surface = id => page.locator(id).evaluate(el => ({background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color}));
+  await page.locator('#submit').hover();
+  const submitHover = await surface('#submit');
+  await page.locator('#pin').hover();
+  const pinHover = await surface('#pin');
+  check(JSON.stringify(submitHover) === JSON.stringify(pinHover), 'submit hover matches toolbar');
+  await page.locator('#submit').hover();
+  await page.mouse.down();
+  const submitPressed = await surface('#submit');
+  await page.mouse.move(0, 0); await page.mouse.up();
+  await page.locator('#pin').hover();
+  await page.mouse.down();
+  const pinPressed = await surface('#pin');
+  await page.mouse.move(0, 0); await page.mouse.up();
+  check(JSON.stringify(submitPressed) === JSON.stringify(pinPressed) && submitPressed.background !== submitHover.background,
+    'submit press matches toolbar');
+  await page.locator('#input').focus();
+  await page.keyboard.press('Tab');
+  const submitFocus = await surface('#submit');
+  check(await page.locator('#submit').evaluate(el => el === document.activeElement), 'submit is keyboard reachable');
+  check(await page.locator('#tooltip').isVisible() && await page.locator('#tooltip').textContent() === '翻译（Ctrl+Enter）',
+    'submit explains its action on keyboard focus');
+  await page.keyboard.press('Tab');
+  check(JSON.stringify(submitFocus) === JSON.stringify(await surface('#pin')), 'submit keyboard focus matches toolbar');
+  await page.locator('#input').fill('');
+  check(await page.locator('#submit').isDisabled(), 'empty input cannot be submitted');
+  await page.locator('#input').fill('draft to keep');
+  await page.locator('#submit').hover();
+  await page.waitForTimeout(350);
+  check(await page.locator('#tooltip').isVisible() && await page.locator('#tooltip').textContent() === '翻译（Ctrl+Enter）', 'submit icon explains action on hover');
   await page.setViewportSize({width: 400, height: 380});
   await page.goto(base + 'settings.html');
   await page.bringToFront();

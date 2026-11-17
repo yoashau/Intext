@@ -125,6 +125,7 @@
     document.addEventListener("scroll", schedulePlace, true);
     window.addEventListener("resize", schedulePlace);
     scroller.addEventListener("load", schedulePlace, true);
+    if (options && options.fade) scroller.addEventListener("input", schedulePlace);
     if (document.fonts) document.fonts.ready.then(schedulePlace);
     if (window.ResizeObserver) new ResizeObserver(schedulePlace).observe(scroller);
     if (window.MutationObserver) {

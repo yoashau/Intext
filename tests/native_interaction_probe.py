@@ -105,8 +105,10 @@ def main() -> int:
             })()''' % (json.dumps(selector), start, end))
 
         def copy_selection(view, selector, start, end, name, chord='c'):
+            # Focusing the page must not turn a source click into an edit.
+            focus_selector = '#result' if selector == '#source' else selector
             rect = view.evaluate_js('''(() => {const r=document.querySelector(%s).getBoundingClientRect();
-                return {x:r.x+8,y:r.y+8};})()''' % json.dumps(selector))
+                return {x:r.x+8,y:r.y+8};})()''' % json.dumps(focus_selector))
             box = {}
             ui(lambda: box.update(point=view.native.PointToScreen(Point(round(rect['x'] * view.native._scale), round(rect['y'] * view.native._scale)))))
             win.user32.SetCursorPos(box['point'].X, box['point'].Y)
@@ -179,6 +181,28 @@ def main() -> int:
                     view.evaluate_js("intext.apply({seq:1,source:'Original selection text',result:'Translated selection text',from:'English',to:'中文',model:'probe'})")
                     copy_selection(view, '#result', 0, 10, 'popup partial Ctrl+C')
                     copy_selection(view, '#source', 0, 8, 'source partial Ctrl+C')
+                    view.evaluate_js('getSelection().removeAllRanges()')
+                    rect = view.evaluate_js('''(() => {const r=document.querySelector('#source').getBoundingClientRect();
+                        return {x:r.x+4,y:r.y+9};})()''')
+                    protocol(view, 'Input.dispatchMouseEvent', {'type':'mousePressed', **rect, 'button':'left', 'clickCount':1})
+                    protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseMoved', 'x':rect['x']+85, 'y':rect['y'], 'button':'left', 'buttons':1})
+                    protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseReleased', 'x':rect['x']+85, 'y':rect['y'], 'button':'left', 'clickCount':1})
+                    selected = view.evaluate_js('getSelection().toString()')
+                    check(bool(selected) and view.evaluate_js("document.getElementById('input').hidden"), 'source drag keeps text selectable')
+                    win.set_clipboard_text('clipboard sentinel')
+                    key(view, 'c')
+                    check(win.clipboard_text() == selected, 'dragged source copies')
+                    view.evaluate_js('getSelection().removeAllRanges()')
+                    protocol(view, 'Input.dispatchMouseEvent', {'type':'mousePressed', **rect, 'button':'left', 'clickCount':1})
+                    protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseReleased', **rect, 'button':'left', 'clickCount':1})
+                    check(view.evaluate_js("!document.getElementById('input').hidden && document.getElementById('input').value === 'Original selection text' && !document.getElementById('result').hidden"), 'source click opens in-place editing')
+                    view.evaluate_js("input.focus();input.setSelectionRange(0,8)")
+                    win.set_clipboard_text('clipboard sentinel')
+                    key(view, 'c')
+                    check(win.clipboard_text() == 'Original', 'editable source copies')
+                    for kind in ('keyDown', 'keyUp'):
+                        protocol(view, 'Input.dispatchKeyEvent', {'type':kind, 'key':'Escape', 'code':'Escape', 'windowsVirtualKeyCode':27})
+                    check(view.evaluate_js("document.getElementById('input').hidden && !document.getElementById('source').hidden"), 'Escape cancels source editing')
                     copy_selection(view, '#result', 11, 20, 'popup Ctrl+Insert', 'Insert')
                     native_copy_after_reopen(view, '#result', 'popup native keyboard')
                     view.evaluate_js("intext.apply({seq:2,mode:'input',enter:true});document.getElementById('input').value='Editable draft';document.getElementById('input').setSelectionRange(0,8)")

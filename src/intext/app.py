@@ -234,8 +234,10 @@ class App:
         name = f"{prefix}.ico" if system_uses_light_theme() else f"{prefix}-on-dark.ico"
         return asset_dir() / name
 
-    def _next_generation(self, *, keep_request: bool = False) -> int:
+    def _next_generation(self, *, keep_request: bool = False, expected: int | None = None) -> int | None:
         with self._request_lock:
+            if expected is not None and expected != self._gen:
+                return None
             previous = self._request_scope
             previous_worker = self._worker_scope
             self._gen += 1
@@ -510,7 +512,7 @@ class App:
         self._popup_requested = True
         self._push(state, enter=True)
 
-    def _capture(self, reader, *, quiet_cancel: bool = False) -> bool:
+    def _capture(self, reader, *, quiet_cancel: bool = False, expected_generation: int | None = None) -> bool:
         if not self._selecting.acquire(blocking=False):
             _boot("capture-busy")
             return False
@@ -518,11 +520,16 @@ class App:
         if not quiet_cancel:
             # Identify the new selection before cancelling: repeating the
             # same content should join its existing request, not restart it.
-            self._next_generation(keep_request=True)
+            if self._next_generation(keep_request=True, expected=expected_generation) is None:
+                self._selecting.release()
+                return False
         gen = self._gen
         try:
             try:
                 text = reader()
+            except CancelledError:
+                self._reuse_or_cancel_text_request(None, gen)
+                return False
             except Exception:
                 log_error(traceback.format_exc())
                 text = None
@@ -541,10 +548,14 @@ class App:
         if quiet_cancel:
             self._next_generation(keep_request=True)
             gen = self._gen
+        if text and not text.strip():
+            text = ""
         self._reuse_or_cancel_text_request(text, gen)
         if not text:
             self._last_text = ""
-            self._push(dict(self._error_state("", "未识别到文字"), seq=gen), enter=True)
+            state = self._base_state("")
+            state.update(mode="input", status="输入翻译", seq=gen)
+            self._push(state, enter=not self._pinned)
             return True
         self._last_text = text
         if not self.settings.model:
@@ -929,19 +940,22 @@ class App:
             return
         self._apply_settings_visibility(generation)
 
-    def retry(self, *, use_cache: bool = False) -> None:
+    def retry(self, *, use_cache: bool = False, expected_generation: int | None = None) -> bool:
         if self._last_shot is not None:
             settings = deepcopy(self.settings)
             settings.shot_input = self._shot_context.shot_input
             settings.shot_display = self._shot_context.shot_display
+            gen = self._next_generation(expected=expected_generation)
+            if gen is None:
+                return False
             self._shot_context = settings
-            self._next_generation()
-            self._start_shot(self._gen, settings, use_cache=use_cache)
-            return
+            self._start_shot(gen, settings, use_cache=use_cache)
+            return True
         if not self._last_text:
-            return
-        self._next_generation()
-        gen = self._gen
+            return False
+        gen = self._next_generation(expected=expected_generation)
+        if gen is None:
+            return False
         self._push(self._pending_state(self._last_text), enter=False)
         threading.Thread(
             target=self._finish,
@@ -949,6 +963,7 @@ class App:
             kwargs={"use_cache": use_cache},
             daemon=True,
         ).start()
+        return True
 
     def open_input(self) -> None:
         self._last_shot = None
@@ -960,23 +975,46 @@ class App:
         state.update(mode="input", status="输入翻译")
         self._push(state, enter=not self._pinned)
 
-    def submit_text(self, text: str) -> None:
+    def submit_text(self, text: str, expected_generation: int | None = None) -> bool:
+        if expected_generation is not None and type(expected_generation) is not int:
+            return False
         if isinstance(text, str) and text.strip():
-            self._capture(lambda: text.strip())
+            return self._capture(lambda: text.strip(), expected_generation=expected_generation)
+        return False
 
-    def set_languages(self, payload: dict) -> None:
+    def set_languages(self, payload: dict) -> bool:
         from .translate import LABELS
 
         if not isinstance(payload, dict):
-            return
+            return False
         source, target = payload.get("source"), payload.get("target")
         if source not in LABELS or target not in LABELS or target == "auto":
-            return
+            return False
+        previous = self._popup_state or {}
+        editing = payload.get("editing") is True
+        if editing:
+            expected = payload.get("editSeq")
+            if type(expected) is not int or previous.get("seq") != expected or not previous.get("source"):
+                return False
+            gen = self._next_generation(expected=expected)
+            if gen is None:
+                return False
         with self._settings_lock:
             self.settings.source, self.settings.target = source, target
             save_settings(self.settings)
             self._sync_languages()
-        if (self._popup_state or {}).get("mode") == "input":
+        if editing:
+            if gen != self._gen:
+                return False
+            previous = self._popup_state or {}
+            if previous.get("seq") != expected or not previous.get("source"):
+                return False
+            state = dict(previous)
+            current = self._base_state(previous["source"])
+            state.update({key: current[key] for key in ("from", "to", "sourceLang", "resultLang", "seq")})
+            state.update(mode="edit", status="输入翻译")
+            self._push(state, enter=False)
+        elif previous.get("mode") == "input":
             state = self._base_state("")
             state.update(mode="input", status="输入翻译")
             self._push(state, enter=False)
@@ -987,6 +1025,7 @@ class App:
             gen = self._gen
             self._push(self._pending_state(self._last_text), enter=False)
             threading.Thread(target=self._finish, args=(self._last_text, gen), daemon=True).start()
+        return True
 
     def _sync_languages(self) -> None:
         if self._settings_window is not None:
@@ -1224,9 +1263,13 @@ class App:
 
 
     def _read_selection(self) -> str | None:
-        from .platform_win import read_selected_text
+        from .platform_win import focused_hwnd, read_selected_text
 
-        return read_selected_text()
+        focus = focused_hwnd()
+        text = read_selected_text()
+        if focus and focused_hwnd() != focus:
+            raise CancelledError()
+        return text
 
     def _read_shot(self) -> str | None:
         from .capture_win import read_screen_text
@@ -1657,6 +1700,11 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
         def retry(self):
             app.retry()
 
+        def retry_after_edit(self, generation):
+            if type(generation) is not int:
+                return False
+            return app.retry(use_cache=True, expected_generation=generation)
+
         def copy_text(self, text):
             # The page reports clipboard failure without re-rendering and
             # clearing the user's selection (the screenshot page does too).
@@ -1669,10 +1717,10 @@ def run_gui(preview: bool = False, settings_only: bool = False, silent: bool = F
             app.swap(source)
 
         def set_languages(self, payload):
-            app.set_languages(payload)
+            return app.set_languages(payload)
 
-        def submit_text(self, text):
-            app.submit_text(text)
+        def submit_text(self, text, generation=None):
+            return app.submit_text(text, expected_generation=generation)
 
         def mark_ready(self, kind):
             app.mark_ready(kind)

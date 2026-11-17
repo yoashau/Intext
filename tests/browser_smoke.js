@@ -158,7 +158,8 @@ async (page) => {
     editor.focus({preventScroll: true});
     const inputStyle = getComputedStyle(editor);
     const inputFocus = inputStyle.outlineStyle === 'none' && parseFloat(inputStyle.outlineWidth) === 0;
-    const submitFits = submit.clientWidth >= submit.scrollWidth && getComputedStyle(submit).whiteSpace === "nowrap";
+    const pin = document.getElementById("pin");
+    const submitFits = submit.clientWidth === pin.clientWidth && submit.clientHeight === pin.clientHeight && !!submit.querySelector('svg');
     document.querySelector("#to").click();
     const options = [...document.querySelectorAll(".language-option")];
     const menuFocus = options.every(el => { el.focus({preventScroll:true}); return getComputedStyle(el).outlineStyle === 'none'; });
