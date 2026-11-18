@@ -13,13 +13,12 @@ env/
 htmlcov/
 coverage.xml
 
-# Build outputs (keep the source packaging/intext.spec)
+# Build outputs and downloaded OCR models
 build/
 dist/
 src/intext/assets/ocr/*.onnx
 src/intext/assets/ocr/*.download
 *.exe
-packaging/installer.generated.iss
 
 # Local configuration and credentials
 .env
@@ -47,13 +46,6 @@ secrets.json
 *.log
 *.out
 *.err
-
-# Local design reviews, screenshots, and live API experiment records.
-# Keep artwork needed to regenerate icons and the original popup reference.
-/design/*
-!/design/tray-icon.svg
-!/design/icon-source.png
-!/design/popup-v1/
 
 # Editor and operating-system files
 .idea/

@@ -42,7 +42,7 @@
 :root :is(input, textarea):focus-visible {
   background: var(--field-focus-fill);
 }
-:root :is(.content, .code, .markdown pre, .md-table, .md-math, .viewport):focus-visible {
+:root :is(.code, .markdown pre, .md-table, .md-math):focus-visible {
   background-color: var(--control-hover);
 }
 :root .switch:focus-visible { filter: brightness(1.15); }

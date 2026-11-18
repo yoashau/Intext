@@ -15,7 +15,7 @@ async (page) => {
       hide: () => { calls.push(['hide']); }, begin_drag: () => { calls.push(['begin_drag']); }
     }};
     window.resultState = {seq: 1, source: 'Original words to translate', result: '初始译文',
-      from: '英语', to: '简体中文', sourceLang: 'en', resultLang: 'zh', status: '未缓存'};
+      from: '英语', to: '简体中文', sourceLang: 'en', resultLang: 'zh'};
     intext.apply(resultState);
   });
   const input = page.locator('#input'), source = page.locator('#source');

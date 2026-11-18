@@ -141,7 +141,7 @@ def webviews():
     import webview
     from intext.app import _patch_transparent_show
     _patch_transparent_show()
-    assets = Path(__file__).resolve().parents[1] / 'src/intext/assets'
+    assets = Path(__file__).resolve().parents[2] / 'src/intext/assets'
     views = [webview.create_window('Intext performance probe', url=(assets / name).as_uri(),
              width=640, height=440, hidden=True, frameless=True, text_select=True, easy_drag=False)
              for name in ('popup.html', 'settings.html', 'tray-menu.html', 'shot-overlay.html')]
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-ocr', action='store_true')
     parser.add_argument('--warm-runs', type=int, default=3)
     args = parser.parse_args()
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     import faulthandler
     trace = args.output.with_suffix('.trace').open('w')

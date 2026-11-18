@@ -42,7 +42,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
-    icon=str(root / "src" / "intext" / "assets" / "intext.ico"),
+    icon=str(root / "src" / "intext" / "assets" / "icons" / "intext.ico"),
 )
 coll = COLLECT(
     exe,

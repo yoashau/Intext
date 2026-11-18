@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="intext")
-    parser.add_argument("--preview", action="store_true", help="open the locked popup with sample text")
+    parser.add_argument("--preview", action="store_true", help="open the translation popup with sample text")
     parser.add_argument("--settings", action="store_true", help="open request settings")
     parser.add_argument("--silent", action="store_true", help="start in the tray without opening a window")
     parser.add_argument("--text", help="translate one string and print it")
@@ -70,7 +70,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_gui(args) -> int:
-
     from .platform_win import claim_instance, signal_running_instance
 
     if not claim_instance():
@@ -89,8 +88,26 @@ def _check() -> int:
     from .fields import request_preview
 
     body = request_preview("gpt 6.1 sol", "auto", "zh", {})
-    missing = [name for name in ("popup.html", "settings.html", "tray-menu.html", "shot-overlay.html", "shot-overlay.css", "shot-overlay.js", "controls.css", "controls.js", "scroll.js", "markdown.js", "markdown.css", "request-policy.js", "vendor/markdown-it/markdown-it.min.js", "vendor/katex/katex.min.js", "vendor/katex/katex.min.css", "vendor/katex/fonts/KaTeX_Main-Regular.woff2", "mark.png", "mark-light.png", "intext.ico", "intext-on-dark.ico", "tray.ico", "tray-on-dark.ico", "ocr/ch_PP-OCRv5_det_mobile.onnx", "ocr/ch_PP-OCRv5_rec_server.onnx") if not (asset_dir() / name).is_file()]
-    if missing or "temperature" in body or body["messages"][1]["content"] != "<选中文字>":
+    assets = asset_dir()
+    required = (
+        "popup.html", "popup.css", "popup.js",
+        "settings.html", "settings.css", "settings.js", "request-policy.js",
+        "tray-menu.html", "tray-menu.css", "tray-menu.js",
+        "shot-overlay.html", "shot-overlay.css", "shot-overlay.js",
+        "shared/controls.css", "shared/controls.js", "shared/scroll.js",
+        "markdown.js", "markdown.css",
+        "vendor/markdown-it/markdown-it.min.js",
+        "vendor/katex/katex.min.js", "vendor/katex/katex.min.css",
+        "vendor/katex/fonts/KaTeX_Main-Regular.woff2",
+        "icons/intext.ico", "icons/intext-on-dark.ico",
+        "icons/mark.png", "icons/mark-light.png",
+        "ocr/ch_PP-OCRv5_det_mobile.onnx", "ocr/ch_PP-OCRv5_rec_server.onnx",
+    )
+    missing = [name for name in required if not (assets / name).is_file()]
+    if missing:
+        print("Missing assets: " + ", ".join(missing), file=sys.stderr)
+        return 1
+    if "temperature" in body or body["messages"][1]["content"] != "<选中文字>":
         print("check failed", file=sys.stderr)
         return 1
     print("ok")

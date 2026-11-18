@@ -15,8 +15,10 @@ from pathlib import Path
 
 
 def main():
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'src'))
+    output = root / 'build/installed-lasso'
+    output.mkdir(parents=True, exist_ok=True)
     from PIL import Image
     from intext.platform_win import enable_dpi_awareness
     enable_dpi_awareness()
@@ -128,7 +130,6 @@ def main():
         colors = image.getcolors(650*500)
         assert colors is not None and len(colors)>32, 'Installed edge remains binary or is an old build'
         assert image.getpixel((320, 230)) == (250, 230, 210), 'Interior hole'
-        output = root/'design/lasso-edge-review'
         image.save(output/'installed-curve.png')
         image.crop((390,35,454,67)).resize((512,256), Image.Resampling.NEAREST).save(output/'installed-slope-8x.png')
         # Clear the active gesture before releasing the button, so it cannot
@@ -152,7 +153,7 @@ def main():
         if previous:
             user.SetForegroundWindow(previous)
         user.SetCursorPos(cursor.x, cursor.y)
-        (root/'build/installed-lasso-visual.json').write_text(json.dumps(report, indent=2))
+        (output/'report.json').write_text(json.dumps(report, indent=2))
         print(json.dumps(report))
     return 0
 

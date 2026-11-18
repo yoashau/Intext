@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from intext.fields import enabled_payload, request_preview, status_presentation
+from intext.fields import enabled_payload, request_preview
 from intext.translate import TranslationError, build_chat_body, cache_key, extract_chat_text, messages_for, swapped_languages
 
 
@@ -96,14 +96,9 @@ class FieldPayloadTest(unittest.TestCase):
             "presence_penalty": {"enabled": True, "value": "0.5"},
         }
         self.assertEqual(enabled_payload(fields), {"presence_penalty": 0.5})
-        html = Path(__file__).resolve().parents[1].joinpath("src/intext/assets/settings.html").read_text(encoding="utf-8")
-        self.assertIn("const NUMBER_TEXT = ", html)
-        self.assertIn("fields.NUMBER_TEXT", html)
-
-    def test_long_status_stays_out_of_the_label(self):
-        label, detail = status_presentation("模型请求失败（400）：temperature is not supported")
-        self.assertEqual(label, "请求失败")
-        self.assertIn("temperature", detail)
+        script = Path(__file__).resolve().parents[1].joinpath("src/intext/assets/settings.js").read_text(encoding="utf-8")
+        self.assertIn("const NUMBER_TEXT = ", script)
+        self.assertIn("fields.NUMBER_TEXT", script)
 
     def test_reasoning_parts_are_not_returned_as_the_translation(self):
         payload = {

@@ -6,7 +6,7 @@ async (page) => {
   const markdown=await page.evaluate(async()=>{
     const raw='# 标题\n\n- 第一项\n- 第二项\n\n| 方法 | 结果 |\n| --- | --- |\n| OCR | 42 |\n\n```cpp\nint x = 42;\n```\n\n公式 $x^2 + 1$\n\n$$\n\\sum_{i=1}^{n} i\n$$\n\n<script>window.executed=true</script>\n![hidden](https://example.invalid/tracker)\n[unsafe](javascript:alert(1))';
     let copied='';window.pywebview={api:{copy_text(text){copied=text;return Promise.resolve(true);}}};
-    intext.apply({seq:10,source:'# Heading',result:raw,from:'英语',to:'简体中文',sourceLang:'en',resultLang:'zh',model:'vision',status:'未缓存'});
+    intext.apply({seq:10,source:'# Heading',result:raw,from:'英语',to:'简体中文',sourceLang:'en',resultLang:'zh',model:'vision'});
     document.getElementById('copy').click();await Promise.resolve();
     const result=document.getElementById('result');
     return {heading:!!result.querySelector('h1'), list:result.querySelectorAll('li').length===2,table:!!result.querySelector('table'),
@@ -39,7 +39,7 @@ async (page) => {
     const previewEdge=document.querySelector('#preview-kind').parentElement.getBoundingClientRect().right;
     const previewBounds=document.querySelector('#preview-kind').parentElement.getBoundingClientRect();
     const textRight=el=>{const range=document.createRange();range.selectNodeContents(el);return range.getBoundingClientRect().right;};
-    const hotkeyTextEdge=textRight(document.querySelector('#hotkey-select .keycap-keys'));
+    const targetTextEdge=textRight(document.querySelector('#target').parentElement.querySelector('.menu-label'));
     const bodies=[];
     for(const method of ['ocr','image'])for(const view of ['popup','overlay']){
       input.value=method;display.value=view;input.dispatchEvent(new Event('change',{bubbles:true}));
@@ -53,7 +53,7 @@ async (page) => {
       }),
       aligned:Math.abs(inputBounds.right-optionEdge)<1 && Math.abs(displayBounds.right-optionEdge)<1 && Math.abs(previewEdge-optionEdge)<1,
       columnAligned:[selectKey,shot,displayBounds,previewBounds].every(rect=>Math.abs(rect.left-inputBounds.left)<1 && Math.abs(rect.right-inputBounds.right)<1),
-      textAligned:['target','shot-input','shot-display','preview-kind'].every(id=>Math.abs(textRight(document.getElementById(id).parentElement.querySelector('.menu-label'))-hotkeyTextEdge)<1),
+      textAligned:['shot-input','shot-display','preview-kind'].every(id=>Math.abs(textRight(document.getElementById(id).parentElement.querySelector('.menu-label'))-targetTextEdge)<1),
       languageInset:['source','target'].every(id=>parseFloat(getComputedStyle(document.getElementById(id).parentElement.querySelector('.menu-btn')).paddingRight)>=14),
       imageContent:Array.isArray(image.messages[1].content) && image.messages[1].content[1].type==='image_url',
       overlayContract:overlay.messages[0].content.includes('exactly one nonempty text'),

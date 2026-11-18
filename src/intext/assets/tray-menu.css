@@ -1,0 +1,25 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+body { padding: 12px; font-family: var(--font-interface); color: var(--text-primary); }
+.menu {
+  opacity: 0;
+  padding: 6px; border-radius: 12px;
+  background: light-dark(rgba(255,251,247,0.97), rgba(44,42,40,0.97));
+  box-shadow: inset 0 0 0 1px light-dark(rgba(72,48,28,0.08), rgba(255,255,255,0.08)),
+    0 3px 8px light-dark(rgba(72,48,28,0.12), rgba(0,0,0,0.26));
+  backdrop-filter: blur(18px);
+}
+button {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 34px;
+  padding: 0 9px; border: 0; border-radius: 7px; margin: 0;
+  color: inherit; background: transparent; font: inherit; font-size: 15px; font-weight: 450; line-height: 22px; text-align: left;
+}
+button:hover { background: var(--control-hover); }
+button:focus-visible { background: var(--control-selected); }
+button:active { background: var(--control-pressed); }
+button:disabled { opacity: 0.5; }
+button[aria-invalid="true"] { color: var(--warning-ink); }
+[aria-checked="false"] .menu-mark svg { visibility: hidden; }
+hr { border: 0; height: 1px; margin: 6px 9px; background: var(--rule-color); }
+.announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

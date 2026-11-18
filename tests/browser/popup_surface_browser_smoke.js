@@ -42,6 +42,14 @@ async (page) => {
     check((await style()).outline !== 'none', colorScheme + ' high contrast focus remains visible');
     await page.emulateMedia({forcedColors: 'none'});
     await page.evaluate(() => intext.apply({seq: 2, source: 'Original text', result: '译文'}));
+    await page.keyboard.press('Tab');
+    const content = page.locator('#content');
+    await content.focus();
+    check(await content.evaluate(el => {
+      const css = getComputedStyle(el);
+      return el.matches(':focus-visible') && css.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+        css.backgroundImage === 'none' && css.boxShadow === 'none' && css.borderWidth === '0px';
+    }), colorScheme + ' keyboard focus adds no inner surface to the result');
     const source = page.locator('#source');
     const before = await source.evaluate(el => {
       const rect = el.getBoundingClientRect(), css = getComputedStyle(el);
@@ -55,6 +63,9 @@ async (page) => {
     check(Math.abs(before.x - after.x) < 1 && Math.abs(before.y - after.y) < 1 &&
       before.size === after.size && before.line === after.line && before.color === after.color,
       colorScheme + ' source stays aligned and styled the same when editing');
+    const inline = await style();
+    check(inline.background === 'rgba(0, 0, 0, 0)' && inline.image === 'none' &&
+      inline.shadow === 'none' && inline.border === '0px', colorScheme + ' inline editor has no inner surface');
   }
   await page.emulateMedia({forcedColors: 'none'});
   return report;

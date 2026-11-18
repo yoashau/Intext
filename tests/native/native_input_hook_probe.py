@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
     from intext import platform_win as win, shell_win as native
     win.enable_dpi_awareness()
     ready, clicked = threading.Event(), threading.Event()

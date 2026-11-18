@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--before', type=Path)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'src'))
     from PIL import Image, ImageDraw
     from intext.platform_win import enable_dpi_awareness
@@ -35,7 +35,7 @@ def main():
         previous_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(previous_module)
         modules.insert(0, ('before', previous_module))
-    output = root / 'design/lasso-edge-review'
+    output = root / 'build/lasso-visual'
     output.mkdir(parents=True, exist_ok=True)
     user = capture_win.user32
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -153,7 +153,7 @@ def main():
         if previous:
             user.SetForegroundWindow(previous)
         user.SetCursorPos(cursor.x, cursor.y)
-        (root / 'build/lasso-visual-validation.json').write_text(json.dumps(report, indent=2))
+        (output / 'report.json').write_text(json.dumps(report, indent=2))
     print(json.dumps(report))
     return 0
 

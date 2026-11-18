@@ -18,7 +18,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'src'))
     import webview
     from intext.app import App, _patch_transparent_show
@@ -66,7 +66,7 @@ def main() -> int:
         from System import Action
         from System.Drawing import Point
         previous = None
-        touched_clipboard = False
+        last_test_copy = None
         original_cursor = win.wintypes.POINT()
         win.user32.GetCursorPos(ctypes.byref(original_cursor))
 
@@ -75,6 +75,14 @@ def main() -> int:
 
         def check(value, name):
             report['checks'][name] = bool(value)
+
+        def copied_text(expected):
+            nonlocal last_test_copy
+            clipboard = win._clipboard_snapshot(text_only=True)
+            if clipboard is not None and clipboard.text == expected:
+                last_test_copy = clipboard
+                return True
+            return False
 
         def protocol(view, method, params):
             box = {}
@@ -118,12 +126,12 @@ def main() -> int:
             expected = select(view, selector, start, end)
             win.set_clipboard_text('clipboard sentinel')
             key(view, chord)
-            actual = win.clipboard_text()
-            report['observations'][name] = {'expected': expected, 'clipboardMatches': actual == expected,
+            matched = copied_text(expected)
+            report['observations'][name] = {'expected': expected, 'clipboardMatches': matched,
                 'focus': view.evaluate_js('document.hasFocus()'),
                 'nativeFocus': win.focused_hwnd(),
                 'trace': view.evaluate_js('window.__keys')}
-            check(actual == expected, name)
+            check(matched, name)
 
         def native_copy_after_reopen(view, selector, name):
             ui(lambda: app._hide_native(view))
@@ -140,7 +148,7 @@ def main() -> int:
             deadline = time.monotonic() + 2
             while win.clipboard_text() != expected and time.monotonic() < deadline:
                 time.sleep(.01)
-            check(win.clipboard_text() == expected, name + ' copies after reopening')
+            check(copied_text(expected), name + ' copies after reopening')
 
         def native_drag(view, selector, name, should_move=True):
             rect = view.evaluate_js('''(() => {const r=document.querySelector(%s).getBoundingClientRect();
@@ -166,10 +174,9 @@ def main() -> int:
             for view in views:
                 if not view.events.loaded.wait(20):
                     raise TimeoutError('WebView loaded')
-            if not win.clipboard_safe_to_replace():
+            previous = win._clipboard_snapshot(text_only=True)
+            if previous is None:
                 raise RuntimeError('Clipboard contains non-text data; clipboard probe was not run')
-            previous = win.clipboard_text()
-            touched_clipboard = True
             for view in views:
                 ui(lambda: app._show_native(view))
                 time.sleep(.3)
@@ -191,7 +198,7 @@ def main() -> int:
                     check(bool(selected) and view.evaluate_js("document.getElementById('input').hidden"), 'source drag keeps text selectable')
                     win.set_clipboard_text('clipboard sentinel')
                     key(view, 'c')
-                    check(win.clipboard_text() == selected, 'dragged source copies')
+                    check(copied_text(selected), 'dragged source copies')
                     view.evaluate_js('getSelection().removeAllRanges()')
                     protocol(view, 'Input.dispatchMouseEvent', {'type':'mousePressed', **rect, 'button':'left', 'clickCount':1})
                     protocol(view, 'Input.dispatchMouseEvent', {'type':'mouseReleased', **rect, 'button':'left', 'clickCount':1})
@@ -199,7 +206,7 @@ def main() -> int:
                     view.evaluate_js("input.focus();input.setSelectionRange(0,8)")
                     win.set_clipboard_text('clipboard sentinel')
                     key(view, 'c')
-                    check(win.clipboard_text() == 'Original', 'editable source copies')
+                    check(copied_text('Original'), 'editable source copies')
                     for kind in ('keyDown', 'keyUp'):
                         protocol(view, 'Input.dispatchKeyEvent', {'type':kind, 'key':'Escape', 'code':'Escape', 'windowsVirtualKeyCode':27})
                     check(view.evaluate_js("document.getElementById('input').hidden && !document.getElementById('source').hidden"), 'Escape cancels source editing')
@@ -208,8 +215,9 @@ def main() -> int:
                     view.evaluate_js("intext.apply({seq:2,mode:'input',enter:true});document.getElementById('input').value='Editable draft';document.getElementById('input').setSelectionRange(0,8)")
                     win.set_clipboard_text('clipboard sentinel')
                     key(view, 'c')
-                    check(win.clipboard_text() == 'Editable', 'input copy')
+                    check(copied_text('Editable'), 'input copy')
                     key(view, 'x')
+                    check(copied_text('Editable'), 'input cut copies')
                     check(view.evaluate_js("document.getElementById('input').value") == ' draft', 'input cut')
                     key(view, 'v')
                     check(view.evaluate_js("document.getElementById('input').value") == 'Editable draft', 'input paste')
@@ -243,8 +251,8 @@ def main() -> int:
         except Exception:
             report['error'] = traceback.format_exc()
         finally:
-            if touched_clipboard:
-                win._restore_clipboard(previous)
+            if previous is not None and previous.text is not None and last_test_copy is not None:
+                win.set_clipboard_text(previous.text, expected=last_test_copy)
             win.user32.SetCursorPos(original_cursor.x, original_cursor.y)
             for view in reversed(views):
                 view.destroy()

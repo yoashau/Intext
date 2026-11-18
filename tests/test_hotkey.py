@@ -55,12 +55,15 @@ class HotkeyTests(unittest.TestCase):
         assert (select, shot, select_error, shot_error) == ("ctrl+alt+q", "ctrl+alt+e", "无效", "重复")
 
     def test_settings_failure_stays_inside_the_existing_keycap(self):
-        html = (Path(__file__).resolve().parents[1] / "src" / "intext" / "assets" / "settings.html").read_text(encoding="utf-8")
-        assert "keycap-state" in html
-        assert "hotkey-alert" not in html
-        assert "alert(" not in html
+        assets = Path(__file__).resolve().parents[1] / "src" / "intext" / "assets"
+        html = (assets / "settings.html").read_text(encoding="utf-8")
+        css = (assets / "settings.css").read_text(encoding="utf-8")
+        script = (assets / "settings.js").read_text(encoding="utf-8")
+        assert "keycap-state" in script
+        assert "hotkey-alert" not in html + css + script
+        assert "alert(" not in script
         assert 'class="keycap" id="hotkey-select"' in html
         assert 'id="stash"' in html
         assert 'id="close"' not in html
-        assert "box-sizing: border-box" in html
-        assert "pop.style.width = rect.width" in html
+        assert "box-sizing: border-box" in css
+        assert "pop.style.width = rect.width" in script

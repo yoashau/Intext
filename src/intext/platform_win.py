@@ -11,7 +11,7 @@ import threading
 import time
 from concurrent.futures import Future, TimeoutError
 from ctypes import wintypes
-from collections.abc import Callable
+from dataclasses import dataclass
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -28,6 +28,10 @@ def _bind() -> None:
     user32.SetClipboardData.restype = wintypes.HANDLE
     user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
     user32.IsClipboardFormatAvailable.restype = wintypes.BOOL
+    user32.GetClipboardSequenceNumber.argtypes = []
+    user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+    user32.GetClipboardOwner.argtypes = []
+    user32.GetClipboardOwner.restype = wintypes.HWND
     kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
     kernel32.GlobalAlloc.restype = wintypes.HANDLE
     kernel32.GlobalLock.argtypes = [wintypes.HANDLE]
@@ -38,16 +42,6 @@ def _bind() -> None:
     kernel32.GlobalFree.restype = wintypes.HANDLE
     user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
     user32.SendInput.restype = wintypes.UINT
-    user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
-    user32.RegisterHotKey.restype = wintypes.BOOL
-    user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
-    user32.GetMessageW.argtypes = [
-        ctypes.POINTER(wintypes.MSG),
-        wintypes.HWND,
-        wintypes.UINT,
-        wintypes.UINT,
-    ]
-    user32.GetMessageW.restype = wintypes.BOOL
     user32.GetCursorPos.argtypes = [ctypes.POINTER(POINT)]
     user32.MonitorFromPoint.restype = wintypes.HANDLE
     user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
@@ -64,7 +58,6 @@ MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
 MOD_WIN = 0x0008
 MOD_NOREPEAT = 0x4000
-WM_HOTKEY = 0x0312
 VK = {chr(code): code for code in range(ord("A"), ord("Z") + 1)}
 VK.update({str(digit): 0x30 + digit for digit in range(10)})
 VK.update({f"F{number}": 0x70 + number - 1 for number in range(1, 13)})
@@ -234,27 +227,55 @@ def _open_clipboard(owner: int | None = None) -> bool:
     return False
 
 
+def _read_clipboard_text() -> str | None:
+    if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+        return None
+    handle = user32.GetClipboardData(CF_UNICODETEXT)
+    if not handle:
+        return None
+    pointer = kernel32.GlobalLock(handle)
+    if not pointer:
+        return None
+    try:
+        return ctypes.wstring_at(pointer)
+    finally:
+        kernel32.GlobalUnlock(handle)
+
+
 def clipboard_text() -> str | None:
     if not _open_clipboard():
         return None
     try:
-        if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
-            return None
-        handle = user32.GetClipboardData(CF_UNICODETEXT)
-        if not handle:
-            return None
-        pointer = kernel32.GlobalLock(handle)
-        if not pointer:
-            return None
-        try:
-            return ctypes.wstring_at(pointer)
-        finally:
-            kernel32.GlobalUnlock(handle)
+        return _read_clipboard_text()
     finally:
         user32.CloseClipboard()
 
 
-def set_clipboard_text(text: str) -> bool:
+def _clipboard_version() -> tuple[int, int]:
+    return user32.GetClipboardSequenceNumber(), int(user32.GetClipboardOwner() or 0)
+
+
+@dataclass(frozen=True)
+class _ClipboardSnapshot:
+    text: str | None
+    version: tuple[int, int]
+
+
+def _clipboard_snapshot(*, text_only: bool = False) -> _ClipboardSnapshot | None:
+    if not _open_clipboard():
+        return None
+    try:
+        if text_only and _has_non_text_clipboard_data():
+            return None
+        text = _read_clipboard_text()
+        if text_only and text is None and user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+            return None
+        return _ClipboardSnapshot(text, _clipboard_version())
+    finally:
+        user32.CloseClipboard()
+
+
+def set_clipboard_text(text: str, *, expected: _ClipboardSnapshot | None = None) -> bool:
     """Replace clipboard text. The allocation happens before the clipboard is emptied."""
     encoded = (text + "\0").encode("utf-16-le")
     handle = kernel32.GlobalAlloc(0x0002, len(encoded))
@@ -286,6 +307,13 @@ def set_clipboard_text(text: str) -> bool:
         return False
     committed = False
     try:
+        if expected is not None:
+            if _has_non_text_clipboard_data() or _clipboard_version() != expected.version:
+                return False
+            # Reading Unicode text renders any deferred clipboard data before
+            # the final revision check. The clipboard is still open here.
+            if _read_clipboard_text() != expected.text or _clipboard_version() != expected.version:
+                return False
         if not user32.EmptyClipboard():
             return False
         for _ in range(4):
@@ -301,27 +329,8 @@ def set_clipboard_text(text: str) -> bool:
             kernel32.GlobalFree(handle)
 
 
-def clipboard_has_non_text() -> bool:
-    """True when files or images are present, or the clipboard cannot be inspected."""
-    return _clipboard_non_text() is not False
-
-
-def _clipboard_non_text() -> bool | None:
-    """True for files or images, False for text-only, None if the clipboard is locked."""
-    if not _open_clipboard():
-        return None
-    try:
-        return any(
-            user32.IsClipboardFormatAvailable(fmt)
-            for fmt in (CF_HDROP, CF_DIB, CF_BITMAP)
-        )
-    finally:
-        user32.CloseClipboard()
-
-
-def clipboard_safe_to_replace() -> bool:
-    """False when files or images are present, or the clipboard cannot be inspected."""
-    return _clipboard_non_text() is False
+def _has_non_text_clipboard_data() -> bool:
+    return any(user32.IsClipboardFormatAvailable(fmt) for fmt in (CF_HDROP, CF_DIB, CF_BITMAP))
 
 
 def _key(vk: int, flags: int = 0) -> INPUT:
@@ -344,7 +353,6 @@ def send_ctrl_c() -> bool:
     return _send_inputs(events)
 
 
-_SENTINEL = "\u2060\u200b\u2060"
 _MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5)
 _CTRL_VKS = (VK_CONTROL, 0xA2, 0xA3)
 
@@ -388,10 +396,11 @@ def send_ctrl_c_after_release(held: tuple[int, ...]) -> bool:
     return _send_inputs(events)
 
 
-def _inject_copy(timeout: float, *, expected_focus: int | None = None) -> bool:
+def _inject_copy(timeout: float, *, expected_focus: int,
+                 expected_clipboard: tuple[int, int]) -> bool:
     """Insert Ctrl+C only as a clean chord. A zero SendInput count is not a copy."""
     clear = modifiers_clear(timeout)
-    if expected_focus is not None and focused_hwnd() != expected_focus:
+    if focused_hwnd() != expected_focus or _clipboard_version() != expected_clipboard:
         return False
     if clear:
         return send_ctrl_c()
@@ -418,6 +427,9 @@ class GUITHREADINFO(ctypes.Structure):
 _GetGUIThreadInfo = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD, ctypes.POINTER(GUITHREADINFO))(
     ("GetGUIThreadInfo", user32)
 )
+_GetWindowThreadProcessId = ctypes.WINFUNCTYPE(
+    wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+)(("GetWindowThreadProcessId", user32))
 _SendMessageTimeoutW = ctypes.WINFUNCTYPE(
     ctypes.c_ssize_t,
     wintypes.HWND,
@@ -441,80 +453,28 @@ def focused_hwnd() -> int:
     return int(info.hwndFocus or info.hwndActive or 0)
 
 
-def copy_focused_control(*, expected_focus: int | None = None) -> tuple[str | None, bool]:
-    """Ask the focused control to copy.
-
-    The second value is true when the message timed out. A late copy may still
-    arrive, so the caller must not inject Ctrl+C in that case.
-    """
-    hwnd = focused_hwnd()
-    if not hwnd or (expected_focus is not None and hwnd != expected_focus) or not set_clipboard_text(_SENTINEL):
-        return None, False
-    result = ctypes.c_size_t()
-    returned = _SendMessageTimeoutW(hwnd, WM_COPY, 0, 0, SMTO_ABORTIFHUNG, 200, ctypes.byref(result))
-    text = clipboard_text()
-    if text and text != _SENTINEL:
-        return text.strip() or None, False
-    return None, not bool(returned)
+def _window_process(hwnd: int) -> int:
+    pid = wintypes.DWORD()
+    if hwnd:
+        _GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
 
 
-def _changed_text() -> str | None:
-    current = clipboard_text()
-    if not current or current == _SENTINEL:
-        return None
-    return current.strip() or None
-
-
-def _await_clipboard(wait_s: float, *, expected_focus: int | None = None) -> str | None:
+def _await_clipboard(wait_s: float, *, original: tuple[int, int],
+                     focus: int, process: int) -> _ClipboardSnapshot | None:
     deadline = time.monotonic() + wait_s
     while True:
-        if expected_focus is not None and focused_hwnd() != expected_focus:
+        if focused_hwnd() != focus:
             return None
-        found = _changed_text()
-        if found:
-            return found
+        current = _clipboard_snapshot()
+        if current is not None and current.version != original:
+            if focused_hwnd() == focus and _window_process(current.version[1]) == process:
+                return current
+            return None
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None
         time.sleep(min(0.012, remaining))
-
-
-def _restore_clipboard(previous: str | None) -> bool:
-    """Put the user's text back. Retry; a failed write after EmptyClipboard is not restored."""
-    for _ in range(6):
-        kind = _clipboard_non_text()
-        if kind is True:
-            return False
-        if kind is None:
-            time.sleep(0.02)
-            continue
-        current = clipboard_text()
-        if previous is None:
-            if current not in (None, _SENTINEL):
-                return True
-            target = ""
-        else:
-            if current == previous:
-                return True
-            target = previous
-        if set_clipboard_text(target):
-            return True
-        time.sleep(0.02)
-    if previous is None and _clipboard_non_text() is not True:
-        return set_clipboard_text("")
-    if previous is not None and _clipboard_non_text() is not True:
-        return set_clipboard_text(previous)
-    return False
-
-
-def _copy_selection(wait_s: float, release_timeout: float, *, expected_focus: int | None = None) -> tuple[str | None, bool]:
-    if expected_focus is not None and focused_hwnd() != expected_focus:
-        return None, False
-    if not set_clipboard_text(_SENTINEL):
-        return None, False
-    if not _inject_copy(release_timeout, expected_focus=expected_focus):
-        return None, False
-    return _await_clipboard(wait_s, expected_focus=expected_focus), True
 
 
 class _AutomationReader:
@@ -572,31 +532,31 @@ def read_selected_text(wait_s: float = 0.6) -> str | None:
         return None
     if handled:
         return text
-    if not clipboard_safe_to_replace():
+    original = _clipboard_snapshot(text_only=True)
+    process = _window_process(initial_focus)
+    if (original is None or not process or focused_hwnd() != initial_focus
+            or _clipboard_version() != original.version):
         return None
-    previous = clipboard_text()
-    try:
-        copied, timed_out = copy_focused_control(expected_focus=initial_focus)
-        if focused_hwnd() != initial_focus:
-            return None
-        if copied:
-            return copied
-        landed = _changed_text()
-        if landed:
-            return landed
-        if timed_out:
-            return _await_clipboard(0.2, expected_focus=initial_focus)
-        if not clipboard_safe_to_replace():
-            return None
-        captured, sent = _copy_selection(wait_s, 0.35, expected_focus=initial_focus)
-        if captured is None and not sent:
-            captured, sent = _copy_selection(0.35, 0.20, expected_focus=initial_focus)
-        if captured is None and sent:
-            # The target may still be writing. Do not send another Ctrl+C over it.
-            captured = _await_clipboard(0.12, expected_focus=initial_focus)
-        return (captured or _changed_text()) if focused_hwnd() == initial_focus else None
-    finally:
-        _restore_clipboard(previous)
+    result = ctypes.c_size_t()
+    returned = _SendMessageTimeoutW(initial_focus, WM_COPY, 0, 0, SMTO_ABORTIFHUNG, 200, ctypes.byref(result))
+    captured = _await_clipboard(0 if returned else 0.2, original=original.version,
+                                focus=initial_focus, process=process)
+    # A timed-out WM_COPY can still write later. Avoid sending a second copy.
+    if captured is None and returned:
+        for release_timeout, copy_wait in ((0.35, wait_s), (0.2, 0.35)):
+            if _inject_copy(release_timeout, expected_focus=initial_focus, expected_clipboard=original.version):
+                captured = _await_clipboard(copy_wait + 0.12, original=original.version,
+                                            focus=initial_focus, process=process)
+                break
+    if captured is None:
+        return None
+    # Restore only the revision produced by the copy. A later user copy
+    # between this read and EmptyClipboard must remain on the clipboard.
+    if original.text is not None and original.text != captured.text:
+        set_clipboard_text(original.text, expected=captured)
+    if focused_hwnd() != initial_focus:
+        return None
+    return (captured.text or "").strip() or None
 
 
 def parse_hotkey(spec: str) -> tuple[int, int]:
@@ -621,20 +581,6 @@ def parse_hotkey(spec: str) -> tuple[int, int]:
         raise ValueError(f"unsupported hotkey key: {key}")
     return modifiers, vk
 
-
-def run_hotkey(spec: str, callback: Callable[[], None]) -> None:
-    modifiers, vk = parse_hotkey(spec)
-    if not user32.RegisterHotKey(None, 1, modifiers, vk):
-        raise OSError("无法注册热键，可能已被其他程序占用")
-    message = wintypes.MSG()
-    try:
-        while user32.GetMessageW(ctypes.byref(message), None, 0, 0) != 0:
-            if message.message == WM_HOTKEY:
-                callback()
-            user32.TranslateMessage(ctypes.byref(message))
-            user32.DispatchMessageW(ctypes.byref(message))
-    finally:
-        user32.UnregisterHotKey(None, 1)
 
 _bind()
 

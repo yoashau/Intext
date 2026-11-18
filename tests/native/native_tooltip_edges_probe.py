@@ -21,7 +21,7 @@ def main() -> int:
     parser.add_argument('--left', type=int)
     parser.add_argument('--top', type=int, default=100)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     assets = args.assets or root / 'src/intext/assets'
     import webview
     from intext.platform_win import enable_dpi_awareness
@@ -40,7 +40,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix='intext-tooltip-edges-') as temp:
         folder = Path(temp)
         for name in ('controls.js', 'controls.css'):
-            shutil.copy2(assets / name, folder / name)
+            shutil.copy2(assets / "shared" / name, folder / name)
         (folder / 'fixture.html').write_text('''<!doctype html><html><head><meta charset="utf-8">
           <link rel="stylesheet" href="controls.css"><style>
           html,body{margin:0;height:100%;overflow:hidden}button{position:absolute;width:64px;height:32px}
@@ -88,7 +88,7 @@ def main() -> int:
                 user.SetCursorPos(point.x, point.y)
                 user.mouse_event(2, 0, 0, 0, 0)
                 user.mouse_event(4, 0, 0, 0, 0)
-                view.evaluate_js((root / 'tests/tooltip_edges.js').read_text(encoding='utf-8'))
+                view.evaluate_js((root / 'tests/native/tooltip_edges.js').read_text(encoding='utf-8'))
                 view.evaluate_js('document.body.tabIndex=-1;document.body.focus();window.runTooltipEdges()')
                 deadline = time.monotonic() + 35
                 while time.monotonic() < deadline:

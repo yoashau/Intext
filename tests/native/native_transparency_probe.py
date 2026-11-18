@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path(tempfile.gettempdir()) / "intext-transparency")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / "src"))
 
     import webview
@@ -120,7 +120,7 @@ def main() -> int:
                         view.evaluate_js("intextShot.apply(" + json.dumps(state, ensure_ascii=False) + ")")
                     else:
                         state = {"seq": len(report["cases"]) + 1, "from": "英语", "to": "简体中文",
-                                 "model": "transparency-test", "status": "输入翻译" if mode == "input" else "未缓存"}
+                                 "model": "transparency-test", "status": "输入翻译" if mode == "input" else ""}
                         if mode == "input":
                             state.update(mode="input", draft="Hello, world.")
                         else:

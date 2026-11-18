@@ -11,7 +11,7 @@ async (page) => {
       calls.push([name, args[0]]); return Promise.resolve(true);
     } }) };
     intext.apply({ seq: 1, from: "英语", to: "简体中文", source: "Paragraph one.\n\nParagraph two.",
-      result: "第一段。\n\n第二段。\n".repeat(30), model: "a-model-name-that-is-too-long-to-fit-in-the-footer".repeat(2), status: "未缓存", pinned: false });
+      result: "第一段。\n\n第二段。\n".repeat(30), model: "a-model-name-that-is-too-long-to-fit-in-the-footer".repeat(2), pinned: false });
     const content = document.querySelector("#content");
     content.scrollTop = 100;
     content.dispatchEvent(new Event("scroll"));
@@ -86,13 +86,14 @@ async (page) => {
   check(popupFocus.length > 5 && popupFocus.every(s => s.style === 'none' && parseFloat(s.width) === 0), 'Popup: focus has no outline');
 
   async function checkHelp() {
-    await page.keyboard.press('Tab');
     const state = await page.evaluate(async () => {
       const button = document.querySelector('.help:not([hidden])');
       const tip = document.querySelector('#tooltip');
       button.scrollIntoView({block:'nearest'});
       // Let scroll handlers settle before starting the delayed hover check.
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      document.activeElement.blur();
+      document.dispatchEvent(new KeyboardEvent('keydown', {key:'Tab',bubbles:true}));
       button.focus({preventScroll:true});
       const keyboardOpens = getComputedStyle(tip).display === 'block';
       const press = new PointerEvent('pointerdown', {button:0,bubbles:true,cancelable:true});
@@ -130,11 +131,15 @@ async (page) => {
     intext.apply({seq: 2, from: "英语", to: "简体中文", source: "hello", status: "请求失败：" + "详细的连接信息。".repeat(120)});
     const button = document.querySelector('#status-help');
     const tip = document.querySelector('#tooltip');
+    document.dispatchEvent(new KeyboardEvent('keydown', {key:'Tab',bubbles:true}));
     button.focus({preventScroll: true});
     const canScroll = tip.classList.contains('is-scrollable') && tip.scrollHeight > tip.clientHeight;
     const press = new KeyboardEvent('keydown', {key:'PageDown',bubbles:true,cancelable:true});
     button.dispatchEvent(press);
     const keyboardScrolls = press.defaultPrevented && tip.scrollTop > 0 && !tip.hidden;
+    button.blur();
+    button.dispatchEvent(new PointerEvent('pointerover', {bubbles:true}));
+    await new Promise(resolve => setTimeout(resolve, 320));
     button.dispatchEvent(new PointerEvent('pointerout', {bubbles:true,relatedTarget:tip}));
     tip.dispatchEvent(new PointerEvent('pointerenter'));
     await new Promise(resolve => setTimeout(resolve, 220));
@@ -170,7 +175,7 @@ async (page) => {
     const draftPreserved = editor.value === "First paragraph.\n\nSecond paragraph.";
     editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }));
     const submitted = calls.some(([name, payload]) => name === "submit_text" && payload === editor.value);
-    intext.apply({ seq: 4, from: "自动", to: "简体中文", resultLang: "zh", source: "こんにちは", result: "你好", status: "未缓存" });
+    intext.apply({ seq: 4, from: "自动", to: "简体中文", resultLang: "zh", source: "こんにちは", result: "你好" });
     document.querySelector("#swap").click();
     const asksBeforeSwap = !document.querySelector("#languages").hidden && !calls.some(([name]) => name === "swap");
     [...document.querySelectorAll(".language-option")].find(el => el.textContent === "日语").click();

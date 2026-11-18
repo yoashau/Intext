@@ -175,6 +175,26 @@ class HttpClientTests(unittest.TestCase):
         self.assertEqual(self.client.post_json(self.server.url + '/redirect', {}, {'value': 'redirect'}, 2)['value'], 'redirect')
         self.assertEqual([body for _, _, body in self.server.calls], [{'value': 'redirect'}] * 2)
 
+    def test_redirect_cannot_resend_body_outside_origin(self):
+        import httpx
+
+        for status in (307, 308):
+            for target in ('//other.test/echo', 'http://model.test/echo', 'https://model.test:8443/echo'):
+                with self.subTest(status=status, target=target):
+                    requests = []
+
+                    def redirect(request):
+                        requests.append(str(request.url))
+                        return httpx.Response(status, headers={'Location': target})
+
+                    client = PooledHttpClient(transport=httpx.MockTransport(redirect), trust_env=False)
+                    try:
+                        with self.assertRaisesRegex(TranslationError, '重定向到其他地址'):
+                            client.post_json('https://model.test/translate', {}, {'value': 'original text'}, 2)
+                    finally:
+                        client.close()
+                    self.assertEqual(requests, ['https://model.test/translate'])
+
     def test_close_cancels_inflight_request_and_stops_io_thread(self):
         with ThreadPoolExecutor(max_workers=1) as workers:
             pending = workers.submit(self.client.post_json, self.server.url + '/hold', {}, {}, 3)

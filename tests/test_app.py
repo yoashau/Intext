@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import CancelledError
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -150,7 +151,7 @@ class AppTests(unittest.TestCase):
 
     def test_clearing_endpoint_does_not_keep_using_the_previous_service(self):
         self.app.settings.endpoint = "https://previous.example.test/v1/chat/completions"
-        with patch.object(self.app, "_take_hotkeys", return_value={}):
+        with patch.dict(sys.modules, {"intext.shell_win": SimpleNamespace(current_shell=lambda: None)}):
             self.app.save_settings({"model": "m", "endpoint": ""})
         self.assertEqual(self.app.settings.endpoint, "")
         self.assertEqual(load_settings().endpoint, "")
@@ -163,7 +164,7 @@ class AppTests(unittest.TestCase):
         with patch("intext.app.threading.Thread") as worker:
             self.assertFalse(self.app._capture(old_selection))
         worker.assert_not_called()
-        self.assertEqual(self.app._gen, 2)
+        self.assertEqual(self.app._gen, 1)
         self.assertEqual(self.app._popup_state["mode"], "input")
         self.assertEqual(self.app._last_text, "")
 
@@ -288,7 +289,7 @@ class AppTests(unittest.TestCase):
     def test_result_update_does_not_move_or_activate_popup(self):
         self.app._push(self.app._pending_state("hello"), enter=True)
         self.calls.clear()
-        self.app._push(self.app._result_state("hello", "你好", False), enter=False, reveal=False)
+        self.app._push(self.app._result_state("hello", "你好"), enter=False, reveal=False)
         self.assertEqual(self.calls, ["script"])
 
     def test_startup_toggle_failure_preserves_menu_and_reports_actual_state(self):
@@ -327,7 +328,7 @@ class AppTests(unittest.TestCase):
         self.app._push(self.app._pending_state("hello"), enter=True)
         self.app.hide()
         self.calls.clear()
-        self.app._push(self.app._result_state("hello", "你好", False), enter=False, reveal=False)
+        self.app._push(self.app._result_state("hello", "你好"), enter=False, reveal=False)
         self.assertEqual(self.calls, [])
         self.assertEqual(self.app._popup_state["result"], "你好")
 
@@ -383,7 +384,7 @@ class AppTests(unittest.TestCase):
 
     def test_swapping_translates_the_previous_result(self):
         self.app._last_text = "hello"
-        self.app._popup_state = self.app._result_state("hello", "你好", False)
+        self.app._popup_state = self.app._result_state("hello", "你好")
         with patch("intext.app.threading.Thread") as thread:
             self.app.swap()
         self.assertEqual(thread.call_args.kwargs["args"][0], "你好")
@@ -414,6 +415,24 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertIsNone(self.app._popup_state)
 
+    def test_cancelled_selection_preserves_the_pending_translation(self):
+        generation = self.app._gen
+        text = "current selection"
+        self.app._last_text = text
+        self.app._push(self.app._pending_state(text), enter=True)
+        before = self.app._popup_state.copy()
+        request, worker = self.app._scopes_for(generation, key=self.app._text_request_key(text))
+
+        with patch.object(self.app, "_read_selection", side_effect=CancelledError):
+            self.app.on_hotkey()
+
+        self.assertEqual(self.app._gen, generation)
+        self.assertEqual(self.app._popup_state, before)
+        request.check()
+        worker.check()
+        self.app._push(self.app._result_state(text, "译文"), enter=False, reveal=False)
+        self.assertEqual(self.app._popup_state["result"], "译文")
+
     def test_unconfigured_hotkey_only_opens_the_translation_popup(self):
         self.app.settings.model = ""
         self.app._read_selection = lambda: "selected text"
@@ -426,7 +445,7 @@ class AppTests(unittest.TestCase):
 
     def test_auto_language_swap_waits_for_a_language_and_uses_the_selected_one(self):
         self.app.settings.source = "auto"
-        self.app._popup_state = self.app._result_state("こんにちは", "你好", False)
+        self.app._popup_state = self.app._result_state("こんにちは", "你好")
         with patch("intext.app.threading.Thread") as thread:
             self.app.swap()
             thread.assert_not_called()
@@ -457,7 +476,7 @@ class AppTests(unittest.TestCase):
 
     def test_changing_languages_during_source_edit_keeps_the_result_without_retranslating(self):
         self.app._last_text = "hello"
-        self.app._popup_state = self.app._result_state("hello", "你好", False)
+        self.app._popup_state = self.app._result_state("hello", "你好")
         with patch("intext.app.threading.Thread") as worker:
             self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": self.app._gen})
         worker.assert_not_called()
@@ -469,7 +488,7 @@ class AppTests(unittest.TestCase):
 
     def test_changing_languages_while_editing_ocr_text_keeps_the_screenshot_context(self):
         self.app._last_shot = object()
-        self.app._popup_state = self.app._result_state("recognized text", "译文", False)
+        self.app._popup_state = self.app._result_state("recognized text", "译文")
         self.app._popup_state["shot"] = True
         with patch("intext.app.threading.Thread") as worker:
             self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": self.app._gen})
@@ -481,7 +500,7 @@ class AppTests(unittest.TestCase):
     def test_stale_editor_actions_cannot_replace_a_newer_selection(self):
         self.app._last_text = "new selection"
         self.app._next_generation()
-        self.app._popup_state = self.app._result_state("new selection", "新译文", False)
+        self.app._popup_state = self.app._result_state("new selection", "新译文")
         generation = self.app._gen
         with patch("intext.app.threading.Thread") as worker, patch("intext.app.save_settings") as save:
             self.assertFalse(self.app.submit_text("old draft", expected_generation=generation - 1))
@@ -512,14 +531,54 @@ class AppTests(unittest.TestCase):
             self.assertEqual(loaded.shot_hotkey, "ctrl+alt+x")
 
     def test_save_trims_pasted_connection_values_and_returns_hotkey_feedback(self):
-        self.app._take_hotkeys = lambda _: {"hotkeyError": "无效"}
-        feedback = self.app.save_settings({
-            "model": " m ", "endpoint": " https://example.test/completions ", "apiKey": " secret "
-        })
-        self.assertEqual(feedback, {"hotkeyError": "无效"})
+        with patch.dict(sys.modules, {"intext.shell_win": SimpleNamespace(current_shell=lambda: None)}):
+            feedback = self.app.save_settings({
+                "model": " m ", "endpoint": " https://example.test/completions ", "apiKey": " secret ",
+                "hotkey": "invalid", "shotHotkey": "ctrl+alt+x",
+            })
+        self.assertEqual(feedback["hotkeyError"], "无效")
+        self.assertEqual(self.app.settings.shot_hotkey, "ctrl+alt+e")
         self.assertEqual(self.app.settings.model, "m")
         self.assertEqual(self.app.settings.endpoint, "https://example.test/completions")
         self.assertEqual(self.app.settings.api_key, "secret")
+
+    def test_settings_write_failure_preserves_effective_settings_and_shortcuts(self):
+        old = self.app.settings.to_dict()
+        save_settings(self.app.settings)
+        endpoint = "https://new.example.test/completions"
+
+        def register(select, shot):
+            self.assertEqual(load_settings().hotkey, select)
+            self.assertEqual(load_settings().shot_hotkey, shot)
+            self.assertEqual(self.app.settings.endpoint, endpoint)
+            return {"hotkeyError": "已被占用"}
+
+        shell = SimpleNamespace(update_hotkeys=Mock(side_effect=register), errors=lambda: {})
+        payload = {"endpoint": endpoint, "model": "new-model", "hotkey": "ctrl+alt+t"}
+        with patch.dict(sys.modules, {"intext.shell_win": SimpleNamespace(current_shell=lambda: shell)}):
+            with patch("intext.config.os.replace", side_effect=PermissionError):
+                with self.assertRaises(PermissionError):
+                    self.app.save_settings(payload)
+            self.assertEqual(self.app.settings.to_dict(), old)
+            self.assertEqual(load_settings().to_dict(), old)
+            shell.update_hotkeys.assert_not_called()
+            feedback = self.app.save_settings(payload)
+
+        shell.update_hotkeys.assert_called_once_with("ctrl+alt+t", "ctrl+alt+e")
+        self.assertEqual(feedback["hotkeyError"], "已被占用")
+        self.assertEqual(load_settings().endpoint, endpoint)
+
+    def test_failed_language_write_does_not_retire_the_current_translation(self):
+        generation = self.app._gen
+        self.app._push(self.app._pending_state("hello"), enter=True)
+        request, worker = self.app._scopes_for(generation)
+        with patch("intext.app.save_settings", side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                self.app.set_languages({"source": "en", "target": "ja", "editing": True, "editSeq": generation})
+        self.assertEqual(self.app.settings.target, "zh")
+        self.assertEqual(self.app._gen, generation)
+        request.check()
+        worker.check()
 
 
 if __name__ == "__main__":

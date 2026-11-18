@@ -110,7 +110,7 @@ def load_tray_icon(path: str, size: int):
     color = _contrast_color()
     if color is None:
         return load_icon(path, size)
-    mask = load_icon(str(Path(path).with_name("tray-on-dark.ico")), size)
+    mask = load_icon(str(Path(path).with_name("intext-on-dark.ico")), size)
     if not mask:
         return None
     try:

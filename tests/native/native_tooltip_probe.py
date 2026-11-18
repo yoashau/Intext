@@ -18,7 +18,7 @@ def main() -> int:
     parser.add_argument('--assets', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'src'))
     import webview
     from intext.app import App, _patch_transparent_show

@@ -1,4 +1,4 @@
-#define AppVersion "0.2.4"
+#define AppVersion "0.2.5"
 
 [Setup]
 AppId={{A7C3E4B1-6D28-4F0A-9B55-1E2F4A8C0D11}
@@ -11,7 +11,7 @@ DefaultGroupName=Intext
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputBaseFilename=Intext-Setup
-SetupIconFile=src\intext\assets\intext.ico
+SetupIconFile=src\intext\assets\icons\intext.ico
 UninstallDisplayIcon={app}\Intext.exe
 Compression=lzma2
 SolidCompression=yes
@@ -34,6 +34,23 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 Filename: "{app}\Intext.exe"; Description: "启动 Intext"; Flags: nowait postinstall skipifsilent
 
 [Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Folder: String;
+begin
+  if CurStep <> ssDone then Exit;
+  Folder := ExpandConstant('{app}\_internal\intext\assets\');
+  DeleteFile(Folder + 'controls.css');
+  DeleteFile(Folder + 'controls.js');
+  DeleteFile(Folder + 'scroll.js');
+  DeleteFile(Folder + 'intext.ico');
+  DeleteFile(Folder + 'intext-on-dark.ico');
+  DeleteFile(Folder + 'tray.ico');
+  DeleteFile(Folder + 'tray-on-dark.ico');
+  DeleteFile(Folder + 'mark.png');
+  DeleteFile(Folder + 'mark-light.png');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Locator, Service, Processes, Process: Variant;

@@ -10,9 +10,12 @@ class WindowsSelectionTests(unittest.TestCase):
         self.platform = platform_win
 
     def test_ready_clipboard_is_read_without_a_fixed_initial_delay(self):
-        with patch.object(self.platform, '_changed_text', return_value='ready'), \
+        ready = self.platform._ClipboardSnapshot('ready', (2, 100))
+        with patch.object(self.platform, '_clipboard_snapshot', return_value=ready), \
+             patch.object(self.platform, 'focused_hwnd', return_value=100), \
+             patch.object(self.platform, '_window_process', return_value=10), \
              patch.object(self.platform.time, 'sleep') as sleep:
-            self.assertEqual(self.platform._await_clipboard(0.6), 'ready')
+            self.assertEqual(self.platform._await_clipboard(0.6, original=(1, 0), focus=100, process=10), ready)
         sleep.assert_not_called()
 
     def test_focus_change_while_waiting_for_hotkey_release_cannot_inject_copy(self):
@@ -20,14 +23,14 @@ class WindowsSelectionTests(unittest.TestCase):
              patch.object(self.platform, 'focused_hwnd', return_value=200), \
              patch.object(self.platform, 'send_ctrl_c') as send, \
              patch.object(self.platform, 'send_ctrl_c_after_release') as release:
-            self.assertFalse(self.platform._inject_copy(0.35, expected_focus=100))
+            self.assertFalse(self.platform._inject_copy(0.35, expected_focus=100, expected_clipboard=(1, 100)))
         send.assert_not_called()
         release.assert_not_called()
 
     def test_focus_change_during_clipboard_wait_abandons_stale_text(self):
         with patch.object(self.platform, 'focused_hwnd', return_value=200), \
-             patch.object(self.platform, '_changed_text', return_value='stale') as read:
-            self.assertIsNone(self.platform._await_clipboard(0.6, expected_focus=100))
+             patch.object(self.platform, '_clipboard_snapshot') as read:
+            self.assertIsNone(self.platform._await_clipboard(0.6, original=(1, 0), focus=100, process=10))
         read.assert_not_called()
 
     def test_function_keys_match_the_keys_settings_can_record(self):
@@ -37,13 +40,13 @@ class WindowsSelectionTests(unittest.TestCase):
 
     def test_accessible_selection_does_not_touch_clipboard(self):
         with patch.object(self.platform, "_automation_selection", return_value=("selected", True)):
-            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+            with patch.object(self.platform, "_clipboard_snapshot") as clipboard:
                 self.assertEqual(self.platform.read_selected_text(), "selected")
             clipboard.assert_not_called()
 
     def test_password_control_does_not_fall_back_to_copy(self):
         with patch.object(self.platform, "_automation_selection", return_value=(None, True)):
-            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+            with patch.object(self.platform, "_clipboard_snapshot") as clipboard:
                 self.assertIsNone(self.platform.read_selected_text())
             clipboard.assert_not_called()
 
@@ -81,7 +84,7 @@ class WindowsSelectionTests(unittest.TestCase):
     def test_focus_change_during_accessibility_read_cannot_copy_or_translate_stale_text(self):
         with patch.object(self.platform, "focused_hwnd", side_effect=[100, 200]), \
              patch.object(self.platform, "_automation_selection", return_value=("old text", True)), \
-             patch.object(self.platform, "copy_focused_control") as copy:
+             patch.object(self.platform, "_SendMessageTimeoutW") as copy:
             self.assertIsNone(self.platform.read_selected_text())
             copy.assert_not_called()
 
@@ -134,11 +137,11 @@ class WindowsSelectionTests(unittest.TestCase):
             if self.platform.focused_hwnd() != hwnd:
                 self.skipTest("the test window could not take foreground focus")
             user.SendMessageW(hwnd, 0x00B1, 0, 6)  # EM_SETSEL
-            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+            with patch.object(self.platform, "_clipboard_snapshot") as clipboard:
                 self.assertEqual(self.platform.read_selected_text(), "Intext")
                 clipboard.assert_not_called()
             user.SendMessageW(hwnd, 0x00B1, 2, 2)
-            with patch.object(self.platform, "clipboard_safe_to_replace") as clipboard:
+            with patch.object(self.platform, "_clipboard_snapshot") as clipboard:
                 self.assertIsNone(self.platform.read_selected_text())
                 clipboard.assert_not_called()
         finally:
@@ -152,10 +155,86 @@ class WindowsSelectionTests(unittest.TestCase):
 
     def test_unsupported_control_keeps_image_clipboard_untouched(self):
         with patch.object(self.platform, "_automation_selection", return_value=(None, False)):
-            with patch.object(self.platform, "clipboard_safe_to_replace", return_value=False):
-                with patch.object(self.platform, "copy_focused_control") as copy:
+            with patch.object(self.platform, "_clipboard_snapshot", return_value=None):
+                with patch.object(self.platform, "_SendMessageTimeoutW") as copy:
                     self.assertIsNone(self.platform.read_selected_text())
                 copy.assert_not_called()
+
+    def test_only_the_copy_from_the_original_application_is_restored(self):
+        platform = self.platform
+        original = platform._ClipboardSnapshot(" previous ", (1, 999))
+        focus = 100
+        current = original
+
+        def copy(_, *_args):
+            nonlocal focus, current
+            current = platform._ClipboardSnapshot(" selected ", (2, owner))
+            focus = focus_after_copy
+            return 1
+
+        for owner, focus_after_copy in [(101, 100), (201, 200), (201, 100)]:
+            with self.subTest(owner=owner, focus=focus_after_copy):
+                focus, current = 100, original
+                with patch.object(platform, "_automation_selection", return_value=(None, False)), \
+                     patch.object(platform, "focused_hwnd", side_effect=lambda: focus), \
+                     patch.object(platform, "_window_process", side_effect=lambda hwnd: hwnd // 100), \
+                     patch.object(platform, "_clipboard_snapshot", side_effect=lambda **_: current), \
+                     patch.object(platform, "_clipboard_version", side_effect=lambda: current.version), \
+                     patch.object(platform, "_SendMessageTimeoutW", side_effect=copy), \
+                     patch.object(platform, "modifiers_clear", return_value=True), \
+                     patch.object(platform, "send_ctrl_c") as inject, \
+                     patch.object(platform, "set_clipboard_text") as restore:
+                    if owner == 101:
+                        self.assertEqual(platform.read_selected_text(), "selected")
+                        restore.assert_called_once_with(" previous ", expected=current)
+                    else:
+                        self.assertIsNone(platform.read_selected_text())
+                        restore.assert_not_called()
+                    inject.assert_not_called()
+
+    def test_clipboard_write_checks_revision_after_acquiring_clipboard(self):
+        platform = self.platform
+        version = (3, 100)
+
+        def acquire(_owner):
+            # The user copied again from the same app before we acquired the clipboard.
+            nonlocal version
+            version = (4, 100)
+            return True
+
+        with patch.object(platform, "_open_clipboard", side_effect=acquire), \
+             patch.object(platform, "_has_non_text_clipboard_data", return_value=False), \
+             patch.object(platform, "_clipboard_version", side_effect=lambda: version), \
+             patch.object(platform.user32, "CloseClipboard"), \
+             patch.object(platform.user32, "EmptyClipboard") as empty:
+            self.assertFalse(platform.set_clipboard_text(
+                "previous", expected=platform._ClipboardSnapshot("captured", (3, 100)),
+            ))
+        empty.assert_not_called()
+
+    def test_ignored_window_copy_falls_back_to_ctrl_c_and_restores_text(self):
+        platform = self.platform
+        original = platform._ClipboardSnapshot("previous", (1, 999))
+        captured = platform._ClipboardSnapshot("selected", (2, 101))
+        current = original
+
+        def send():
+            nonlocal current
+            current = captured
+            return True
+
+        with patch.object(platform, "_automation_selection", return_value=(None, False)), \
+             patch.object(platform, "focused_hwnd", return_value=100), \
+             patch.object(platform, "_window_process", return_value=1), \
+             patch.object(platform, "_clipboard_snapshot", side_effect=lambda **_: current), \
+             patch.object(platform, "_clipboard_version", side_effect=lambda: current.version), \
+             patch.object(platform, "_SendMessageTimeoutW", return_value=1), \
+             patch.object(platform, "modifiers_clear", return_value=True), \
+             patch.object(platform, "send_ctrl_c", side_effect=send) as inject, \
+             patch.object(platform, "set_clipboard_text") as restore:
+            self.assertEqual(platform.read_selected_text(), "selected")
+        inject.assert_called_once()
+        restore.assert_called_once_with("previous", expected=captured)
 
     def test_clipboard_write_uses_and_releases_a_real_owner_window(self):
         owners = []

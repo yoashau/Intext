@@ -6,18 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ASSETS = Path(__file__).resolve().parents[1] / "src" / "intext" / "assets"
+ICONS = Path(__file__).resolve().parents[1] / "src" / "intext" / "assets" / "icons"
 
 
 class TrayAssetsTests(unittest.TestCase):
-    def test_application_icons_match_current_tray(self):
-        for app, tray in (("intext.ico", "tray.ico"), ("intext-on-dark.ico", "tray-on-dark.ico")):
-            with self.subTest(theme=tray):
-                self.assertEqual((ASSETS / app).read_bytes(), (ASSETS / tray).read_bytes())
-
     def test_native_sizes_and_light_foreground(self):
-        for name, opacity in (("tray.ico", 228), ("tray-on-dark.ico", 255)):
-            data = (ASSETS / name).read_bytes()
+        for name, opacity in (("intext.ico", 228), ("intext-on-dark.ico", 255)):
+            data = (ICONS / name).read_bytes()
             reserved, kind, count = struct.unpack_from("<HHH", data)
             self.assertEqual((reserved, kind), (0, 1))
             sizes = set()
@@ -31,7 +26,7 @@ class TrayAssetsTests(unittest.TestCase):
                 pixels = data[offset + 40:offset + 40 + size * size * 4]
                 self.assertEqual(max(pixels[3::4]), opacity)
                 self.assertEqual(min(pixels[3::4]), 0)
-                if name == "tray.ico":
+                if name == "intext.ico":
                     self.assertTrue(all(value == 0 for c in range(3) for value in pixels[c::4]))
             self.assertTrue(set(range(16, 65)) <= sizes)
 
@@ -63,7 +58,7 @@ class NativeTrayTests(unittest.TestCase):
         from intext import tray_icon as tray
         from intext.platform_win import destroy_icon, load_icon
         for size in (16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64):
-            mask = load_icon(str(ASSETS / "tray-on-dark.ico"), size)
+            mask = load_icon(str(ICONS / "intext-on-dark.ico"), size)
             self.assertTrue(mask)
             try:
                 coverage = self.pixels(mask, size)[3::4]
@@ -71,7 +66,7 @@ class NativeTrayTests(unittest.TestCase):
                 destroy_icon(mask)
             for contrast in (None, (255, 255, 255), (0, 0, 0), (255, 255, 0), (24, 200, 130)):
                 with self.subTest(size=size, contrast=contrast), patch.object(tray, "_contrast_color", return_value=contrast):
-                    icon = tray.load_tray_icon(str(ASSETS / "tray.ico"), size)
+                    icon = tray.load_tray_icon(str(ICONS / "intext.ico"), size)
                     self.assertTrue(icon)
                     try:
                         pixels = self.pixels(icon, size)
@@ -99,10 +94,10 @@ class NativeTrayTests(unittest.TestCase):
         resources.argtypes = [wintypes.HANDLE, wintypes.DWORD]
         resources.restype = wintypes.DWORD
         with patch.object(tray, "_contrast_color", return_value=(255, 255, 0)):
-            destroy_icon(tray.load_tray_icon(str(ASSETS / "tray.ico"), 24))
+            destroy_icon(tray.load_tray_icon(str(ICONS / "intext.ico"), 24))
             before = tuple(resources(process(), kind) for kind in (0, 1))
             for _ in range(64):
-                destroy_icon(tray.load_tray_icon(str(ASSETS / "tray.ico"), 24))
+                destroy_icon(tray.load_tray_icon(str(ICONS / "intext.ico"), 24))
             self.assertEqual(before, tuple(resources(process(), kind) for kind in (0, 1)))
 
 

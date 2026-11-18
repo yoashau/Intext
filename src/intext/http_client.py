@@ -9,6 +9,7 @@ import re
 import ssl
 import threading
 from concurrent.futures import CancelledError, Future
+from contextlib import aclosing
 from typing import Callable
 
 from .translate import TranslationError
@@ -121,12 +122,22 @@ class PooledHttpClient:
                         verify=ssl.create_default_context(), trust_env=self._trust_env,
                         limits=httpx.Limits(max_connections=self._limit, max_keepalive_connections=self._limit,
                                             keepalive_expiry=30),
-                        follow_redirects=True, transport=self._transport,
+                        transport=self._transport,
                     )
                 async with self._semaphore:
-                    async with self._client.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
-                        status = response.status_code
-                        raw = (await response.aread()).decode("utf-8", errors="replace")
+                    request = self._client.build_request("POST", url, headers=headers, json=body, timeout=timeout)
+                    origin = (request.url.scheme, request.url.raw_host, request.url.port)
+                    for _ in range(self._client.max_redirects + 1):
+                        async with aclosing(await self._client.send(request, stream=True, follow_redirects=False)) as response:
+                            request = response.next_request
+                            if request is None:
+                                status = response.status_code
+                                raw = (await response.aread()).decode("utf-8", errors="replace")
+                                break
+                            if (request.url.scheme, request.url.raw_host, request.url.port) != origin:
+                                raise TranslationError("接口重定向到其他地址，请在设置中填写最终接口地址。")
+                    else:
+                        raise TranslationError("接口重定向次数过多，请检查接口地址。")
         except (httpx.TimeoutException, TimeoutError) as exc:
             if status is not None and not 200 <= status < 300:
                 raise TranslationError(_http_message(status, "")) from exc

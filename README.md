@@ -80,7 +80,7 @@ Windows 划词与截图翻译工具。选中文字、按下快捷键，在原处
 
 ## 数据留在哪里
 
-配置、API key 和翻译缓存保存在 `%APPDATA%\Intext`。翻译请求直接发往你配置的服务。
+配置、API key 和翻译缓存保存在 `%APPDATA%\Intext`。翻译请求直接发往你配置的服务，只跟随协议、主机和端口相同的重定向。
 
 - 划词、输入翻译和本地 OCR 模式发送文字。本地 OCR 使用随安装包提供的 PP-OCRv5 模型，在程序内运行；本地识别不代表翻译也离线。
 - 图片直译会发送圈选截图。自由圈选外的像素会先被清除，图片本身不写入翻译缓存。
@@ -123,6 +123,13 @@ uv run --locked --managed-python --extra windows python -m unittest discover -s 
 打包使用 [`packaging/build.ps1`](packaging/build.ps1)。脚本使用项目的 uv 环境，在 Windows 本地工作目录打包，扫描程序目录和安装包，Defender 检测通过后才复制安装包到下载目录，同时生成记录 SHA-256 和扫描结果的 `Intext-Setup.verification.json`。脚本不修改系统保护设置；扫描结果代表当时的本机检测结果。
 
 已打包程序可以通过 `Intext.exe --check-ocr <本机图片路径>` 检查 OCR，退出码为 0 表示识别到了文字，不发送翻译请求。
+
+## 项目结构
+
+- `src/intext/` 存放应用、翻译、OCR 和 Windows 集成代码。`assets/` 中每个窗口的 HTML、CSS 和 JavaScript 使用相同的文件名，共用控件放在 `assets/shared/`。
+- `tests/` 存放单元测试，`tests/browser/` 存放 Playwright 冒烟检查，`tests/native/` 存放需要在 Windows 桌面运行的验证脚本。
+- `packaging/` 存放打包、安装和验证脚本。修改 `design/tray-icon.svg` 后，运行 `uv run python packaging/make_icons.py` 重新生成应用和托盘共用的图标。
+- `docs/images/` 存放本文使用的界面截图。本地构建和验证产物可放在 Git 忽略的 `build/` 或 `dist/`。
 
 ## 使用的项目
 

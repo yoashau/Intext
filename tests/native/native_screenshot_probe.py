@@ -18,7 +18,7 @@ from pathlib import Path
 def main() -> int:
     if sys.platform != 'win32':
         raise SystemExit('Run with Windows Python')
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / 'src'))
     output = Path(tempfile.gettempdir()) / 'intext-screenshot-probe'
     output.mkdir(exist_ok=True)
@@ -93,8 +93,9 @@ def main() -> int:
                         if app._shot_state.get('error'):
                             raise RuntimeError(app._shot_state['error'])
                         window = app._shot_window
-                        wait_for(lambda: window.evaluate_js("document.querySelectorAll('.region').length") == len(app._shot_state['blocks']))
-                        observed = window.evaluate_js("({blocks:document.querySelectorAll('.region').length, image:!!document.querySelector('#image').naturalWidth, text:document.querySelector('#labels').textContent})")
+                        wait_for(lambda: window.evaluate_js("!!document.querySelector('#image').naturalWidth && "
+                            "document.querySelectorAll('#labels .region').length") == len(app._shot_state['blocks']))
+                        observed = window.evaluate_js("({blocks:document.querySelectorAll('#labels .region').length, image:!!document.querySelector('#image').naturalWidth, text:document.querySelector('#labels').textContent})")
                         if not observed['image'] or observed['blocks'] < 3:
                             raise AssertionError(observed)
                         window.evaluate_js("document.getElementById('original').click()")
@@ -114,20 +115,22 @@ def main() -> int:
                     if method == 'ocr' and view == 'popup':
                         source = app._shot_page[1].text
                         count = len(requests)
-                        if app._cached(source) is None:
+                        cached = app._cached(source)
+                        if cached is None:
                             raise AssertionError('Selection fast path cannot find OCR result')
-                        app.submit_text(source)
-                        if app._popup_state.get('status') != '已缓存' or len(requests) != count:
+                        if (not app.submit_text(source) or app._popup_state.get('seq') != app._gen
+                                or app._popup_state.get('result') != cached.text or len(requests) != count):
                             raise AssertionError('Input translation did not reuse OCR result')
                         app.retry()
                         refresh_gen = app._gen
                         wait_for(lambda: app._popup_state.get('seq') == refresh_gen and bool(app._popup_state.get('result')))
                         if len(requests) != count + 1:
                             raise AssertionError('Text retry did not refresh')
+                        refreshed = app._popup_state['result']
                         app.on_shot()
                         shot_gen = app._gen
                         wait_for(lambda: app._popup_state.get('seq') == shot_gen and bool(app._popup_state.get('result')))
-                        if app._popup_state.get('status') != '已缓存' or len(requests) != count + 1:
+                        if app._popup_state.get('result') != refreshed or len(requests) != count + 1:
                             raise AssertionError('OCR did not reuse refreshed text result')
                         app.retry()
                         retry_gen = app._gen

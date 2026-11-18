@@ -14,12 +14,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "design" / "tray-icon.svg"
-ASSET_DIR = ROOT / "src" / "intext" / "assets"
+ASSET_DIR = ROOT / "src" / "intext" / "assets" / "icons"
 SIZES = (16, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 128, 256)
-LIGHT_GLYPH = (32, 32, 32)
-DARK_GLYPH = (255, 255, 255)
-TRAY_SIZES = tuple(sorted(set(SIZES) | set(range(16, 65))))
-TRAY_VARIANTS = (("tray.ico", (0, 0, 0), 228), ("tray-on-dark.ico", DARK_GLYPH, 255))
+ICON_SIZES = tuple(sorted(set(SIZES) | set(range(16, 65))))
+THEMES = (
+    ("intext.ico", "mark.png", (0, 0, 0), 228),
+    ("intext-on-dark.ico", "mark-light.png", (255, 255, 255), 255),
+)
 
 
 def segments(size: int, root=None):
@@ -65,14 +66,14 @@ def segments(size: int, root=None):
                 raise ValueError(f"Unsupported SVG command {command}")
 
 
-def render(size: int, color: tuple[int, int, int], source: Path | None = None, *, opacity: int = 255) -> bytes:
+def render(size: int, color: tuple[int, int, int], *, opacity: int) -> bytes:
     # Union high-resolution strokes before filtering: intersections must not
     # darken, and transparent pixels must never contain premultiplied RGB.
     samples = 12 if size <= 48 else 4
     side = size * samples
     scale = side / 16
     mask = bytearray(side * side)
-    root = ET.parse(source or SOURCE).getroot()
+    root = ET.parse(SOURCE).getroot()
     for path in root:
         single = ET.Element("svg", root.attrib)
         single.append(path)
@@ -169,24 +170,15 @@ def write_ico(path: Path, images: list[tuple[int, bytes]]) -> None:
 
 def build() -> None:
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
-    for name, color, opacity in TRAY_VARIANTS:
-        images = [(size, render(size, color, opacity=opacity)) for size in TRAY_SIZES]
-        write_ico(ASSET_DIR / name, images)
-        print(f"wrote {name}: {TRAY_SIZES}")
-        for size, rgba in images:
-            if size in (16, 20, 24, 32, 48):
-                preview = ROOT / "design" / "tray-audit"
-                preview.mkdir(parents=True, exist_ok=True)
-                write_png(preview / f"{name[:-4]}-{size}.png", size, size, rgba)
+    for icon_name, mark_name, color, opacity in THEMES:
+        images = {size: render(size, color, opacity=opacity) for size in ICON_SIZES}
+        write_ico(ASSET_DIR / icon_name, list(images.items()))
+        write_png(ASSET_DIR / mark_name, 128, 128, images[128])
+        print(f"wrote {icon_name} and {mark_name}")
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tray-only", action="store_true", help="leave application icons and page PNGs untouched")
-    args = parser.parse_args()
-    if args.tray_only:
-        build()
-    else:
-        from make_app_icons import build as build_app_icons
-        build_app_icons()
+
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    build()

@@ -19,8 +19,8 @@ def main():
     parser.add_argument('--strategy', choices=['prebuilt', 'lazy', 'low'], required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
-    sys.path[:0] = [str(root / 'src'), str(root / 'tests')]
+    root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / 'src'))
     import webview
     from intext.app import _patch_transparent_show
     from intext.platform_win import enable_dpi_awareness

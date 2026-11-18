@@ -117,10 +117,6 @@ def _screen_surface(rect):
         user32.ReleaseDC(None, screen)
 
 
-def capture_bmp(rect: tuple[int, int, int, int], path: Path) -> None:
-    screen_image(rect).save(path, format="BMP")
-
-
 def _point(lparam: int) -> tuple[int, int]:
     return ctypes.c_short(lparam & 0xFFFF).value, ctypes.c_short((lparam >> 16) & 0xFFFF).value
 
@@ -445,13 +441,6 @@ def _mask_freehand(image, points):
         resources.callback(fill.close)
         fill.draw(output.dc, points, (0, 0, *image.size))
         return output.to_image()
-
-
-def read_screen_text() -> str | None:
-    from .ocr import recognize
-
-    shot = capture_shot()
-    return None if shot is None else recognize(shot).text
 
 
 _bind()

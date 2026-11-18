@@ -10,6 +10,7 @@ import time
 import traceback
 from copy import deepcopy
 from concurrent.futures import CancelledError
+from dataclasses import replace
 from pathlib import Path
 
 from .cache import MemoryCache, SqliteCache, TieredCache
@@ -227,12 +228,11 @@ class App:
         self._show_epoch = 0
         self._ui_refs: list = []
 
-    def icon_path(self, *, tray: bool = False) -> Path:
+    def icon_path(self) -> Path:
         from .platform_win import system_uses_light_theme
 
-        prefix = "tray" if tray else "intext"
-        name = f"{prefix}.ico" if system_uses_light_theme() else f"{prefix}-on-dark.ico"
-        return asset_dir() / name
+        name = "intext.ico" if system_uses_light_theme() else "intext-on-dark.ico"
+        return asset_dir() / "icons" / name
 
     def _next_generation(self, *, keep_request: bool = False, expected: int | None = None) -> int | None:
         with self._request_lock:
@@ -440,7 +440,7 @@ class App:
                 self._push_shot({**overlay_payload(shot, page, result.regions), "seq": gen,
                                  "text": result.text, "model": settings.model, "busy": False})
             else:
-                state.update(result=result.text, status="已缓存" if result.cached else "未缓存")
+                state.update(result=result.text, status="")
                 self._push(state, enter=False, reveal=False)
         except CancelledError:
             return
@@ -512,42 +512,34 @@ class App:
         self._popup_requested = True
         self._push(state, enter=True)
 
-    def _capture(self, reader, *, quiet_cancel: bool = False, expected_generation: int | None = None) -> bool:
+    def _capture(self, reader, *, expected_generation: int | None = None) -> bool:
         if not self._selecting.acquire(blocking=False):
             _boot("capture-busy")
             return False
-        # A cancelled shot must not retire the translation already in flight.
-        if not quiet_cancel:
-            # Identify the new selection before cancelling: repeating the
-            # same content should join its existing request, not restart it.
-            if self._next_generation(keep_request=True, expected=expected_generation) is None:
-                self._selecting.release()
-                return False
-        gen = self._gen
         try:
+            starting_generation = self._gen
+            if expected_generation is not None and expected_generation != starting_generation:
+                return False
             try:
                 text = reader()
             except CancelledError:
-                self._reuse_or_cancel_text_request(None, gen)
                 return False
             except Exception:
                 log_error(traceback.format_exc())
                 text = None
+            # Keep the current translation running if the read is cancelled.
+            # A new selection can still join an identical in-flight request.
+            gen = self._next_generation(keep_request=True, expected=starting_generation)
+            if gen is None:
+                return False
         finally:
             self._selecting.release()
         if gen != self._gen:
             return False
-        # A cancelled shot must keep holding until on_shot drops queued shows.
-        if not (text is None and quiet_cancel):
-            self._hold_show = False
-        _boot("capture-cancel" if text is None and quiet_cancel else f"captured {len(text or '')}")
-        if text is None and quiet_cancel:
-            return False
+        self._hold_show = False
+        _boot(f"captured {len(text or '')}")
         self._last_shot = None
         self.hide_shot()
-        if quiet_cancel:
-            self._next_generation(keep_request=True)
-            gen = self._gen
         if text and not text.strip():
             text = ""
         self._reuse_or_cancel_text_request(text, gen)
@@ -569,7 +561,7 @@ class App:
         if gen != self._gen:
             return False
         if cached is not None:
-            self._push(dict(self._result_state(text, cached.text, True), seq=gen), enter=not self._pinned)
+            self._push(dict(self._result_state(text, cached.text), seq=gen), enter=not self._pinned)
             return True
         self._push(dict(self._pending_state(text), seq=gen), enter=not self._pinned)
         threading.Thread(target=self._finish, args=(text, gen), daemon=True).start()
@@ -625,7 +617,6 @@ class App:
         if gen != self._gen:
             return
         state["result"] = result.text
-        state["status"] = "已缓存" if result.cached else "未缓存"
         self._push(state, enter=False, reveal=False)
 
     def _base_state(self, text: str) -> dict:
@@ -643,10 +634,9 @@ class App:
             "seq": self._gen,
         }
 
-    def _result_state(self, text: str, result: str, cached: bool) -> dict:
+    def _result_state(self, text: str, result: str) -> dict:
         state = self._base_state(text)
         state["result"] = result
-        state["status"] = "已缓存" if cached else "未缓存"
         return state
 
     def _pending_state(self, text: str) -> dict:
@@ -712,33 +702,6 @@ class App:
 
         _boot(f"js-queued {kind}")
         self._on_ui(window, apply)
-
-    def _observe_script(self, kind: str, task) -> None:
-        try:
-            from System import Action
-            from System.Threading.Tasks import Task
-        except Exception:
-            log_error(traceback.format_exc())
-            return
-
-        def done(completed) -> None:
-            try:
-                if completed.IsFaulted:
-                    log_error(f"js-fault {kind}\n{completed.Exception}")
-                    return
-                _boot(f"js-result {kind} {completed.Result}")
-            except Exception:
-                log_error(traceback.format_exc())
-            finally:
-                _drop_delegate(getattr(done, "callback", None))
-
-        try:
-            callback = Action[Task](done)
-            done.callback = callback
-            _keep_delegate(callback)
-            task.ContinueWith(callback)
-        except Exception:
-            log_error(traceback.format_exc())
 
     def _reset_tooltip(self, window) -> None:
         # Hiding a native WebView does not reliably dispatch DOM blur or
@@ -996,15 +959,16 @@ class App:
             expected = payload.get("editSeq")
             if type(expected) is not int or previous.get("seq") != expected or not previous.get("source"):
                 return False
-            gen = self._next_generation(expected=expected)
-            if gen is None:
-                return False
         with self._settings_lock:
-            self.settings.source, self.settings.target = source, target
-            save_settings(self.settings)
+            if editing and expected != self._gen:
+                return False
+            settings = replace(self.settings, source=source, target=target)
+            save_settings(settings)
+            self.settings = settings
             self._sync_languages()
         if editing:
-            if gen != self._gen:
+            gen = self._next_generation(expected=expected)
+            if gen is None:
                 return False
             previous = self._popup_state or {}
             if previous.get("seq") != expected or not previous.get("source"):
@@ -1160,12 +1124,10 @@ class App:
         if source not in LABELS or source == "auto":
             return
         with self._settings_lock:
-            settings = self.settings
-            settings.source, settings.target = swapped_languages(
-                source,
-                previous.get("resultLang") or settings.target,
-            )
+            source, target = swapped_languages(source, previous.get("resultLang") or self.settings.target)
+            settings = replace(self.settings, source=source, target=target)
             save_settings(settings)
+            self.settings = settings
             self._sync_languages()
         self._last_shot = None
         self._last_text = result
@@ -1177,26 +1139,45 @@ class App:
     def save_settings(self, payload: dict) -> dict | None:
         if not isinstance(payload, dict):
             return
+        from .fields import normalize_field_state
+        from .hotkey import resolve_hotkey_change
+        from .shell_win import current_shell
+
         with self._settings_lock:
-            self.settings.model = str(payload.get("model") or "").strip()
-            self.settings.endpoint = str(payload.get("endpoint", self.settings.endpoint) or "").strip()
-            self.settings.api_key = str(payload.get("apiKey") or payload.get("api_key") or "").strip()
-            self.settings.source = str(payload.get("source") or "auto")
-            self.settings.target = str(payload.get("target") or "zh")
-            self.settings.shot_input = "image" if payload.get("shotInput", payload.get("shot_input", self.settings.shot_input)) == "image" else "ocr"
-            self.settings.shot_display = "overlay" if payload.get("shotDisplay", payload.get("shot_display", self.settings.shot_display)) == "overlay" else "popup"
+            current = self.settings
+            hotkey, shot_hotkey, select_error, shot_error = resolve_hotkey_change(
+                current.hotkey, current.shot_hotkey,
+                str(payload.get("hotkey") or current.hotkey),
+                str(payload.get("shotHotkey") or payload.get("shot_hotkey") or current.shot_hotkey),
+            )
+            if select_error or shot_error:
+                hotkey, shot_hotkey = current.hotkey, current.shot_hotkey
+            shot_input = payload.get("shotInput", payload.get("shot_input", current.shot_input))
+            shot_display = payload.get("shotDisplay", payload.get("shot_display", current.shot_display))
             incoming = payload.get("fields") or {}
-            if isinstance(incoming, dict):
-                from .fields import normalize_field_state
-
-                self.settings.fields = normalize_field_state(incoming)
-            hotkeys = self._take_hotkeys(payload)
-            save_settings(self.settings)
-        return hotkeys
-
-    def _commit_settings(self) -> None:
-        with self._settings_lock:
-            save_settings(self.settings)
+            settings = replace(
+                current,
+                model=str(payload.get("model") or "").strip(),
+                endpoint=str(payload.get("endpoint", current.endpoint) or "").strip(),
+                api_key=str(payload.get("apiKey") or payload.get("api_key") or "").strip(),
+                source=str(payload.get("source") or "auto"),
+                target=str(payload.get("target") or "zh"),
+                shot_input="image" if shot_input == "image" else "ocr",
+                shot_display="overlay" if shot_display == "overlay" else "popup",
+                fields=normalize_field_state(incoming) if isinstance(incoming, dict) else current.fields,
+                hotkey=hotkey,
+                shot_hotkey=shot_hotkey,
+            )
+            save_settings(settings)
+            self.settings = settings
+            if select_error or shot_error:
+                return self._hotkey_status(select_error, shot_error)
+            if (hotkey, shot_hotkey) != (current.hotkey, current.shot_hotkey):
+                shell = current_shell()
+                if shell is not None:
+                    errors = shell.update_hotkeys(hotkey, shot_hotkey)
+                    return self._hotkey_status(errors.get("hotkeyError", ""), errors.get("shotHotkeyError", ""))
+            return self._hotkey_status()
 
     def remember_settings_window(self, width: int, height: int) -> None:
         width = int(width)
@@ -1271,11 +1252,6 @@ class App:
             raise CancelledError()
         return text
 
-    def _read_shot(self) -> str | None:
-        from .capture_win import read_screen_text
-
-        return read_screen_text()
-
     def _hotkey_status(self, hotkey_error: str | None = None, shot_error: str | None = None) -> dict:
         from .shell_win import current_shell
 
@@ -1293,28 +1269,6 @@ class App:
             "hotkeyError": errors.get("hotkeyError", ""),
             "shotHotkeyError": errors.get("shotHotkeyError", ""),
         }
-
-    def _take_hotkeys(self, payload: dict) -> dict:
-        from .hotkey import resolve_hotkey_change
-        from .shell_win import current_shell
-
-        hotkey, shot, select_error, shot_error = resolve_hotkey_change(
-            self.settings.hotkey,
-            self.settings.shot_hotkey,
-            str(payload.get("hotkey") or self.settings.hotkey),
-            str(payload.get("shotHotkey") or payload.get("shot_hotkey") or self.settings.shot_hotkey),
-        )
-        if select_error or shot_error:
-            return self._hotkey_status(select_error, shot_error)
-        if hotkey == self.settings.hotkey and shot == self.settings.shot_hotkey:
-            return self._hotkey_status()
-        self.settings.hotkey = hotkey
-        self.settings.shot_hotkey = shot
-        shell = current_shell()
-        if shell is None:
-            return self._hotkey_status("", "")
-        failed = shell.update_hotkeys(hotkey, shot)
-        return self._hotkey_status(failed.get("hotkeyError", ""), failed.get("shotHotkeyError", ""))
 
     def settings_payload(self) -> dict:
         return {
@@ -1582,7 +1536,6 @@ class App:
             self._result_state(
                 "Please leave this model's request body unchanged.",
                 "请保持这个模型的请求体原样。",
-                True,
             ),
             enter=True,
         )
@@ -1982,7 +1935,7 @@ def _shell(app: App) -> None:
             hotkey=app.settings.hotkey,
             shot_hotkey=app.settings.shot_hotkey,
             tip=("Intext  " + display_hotkey(app.settings.hotkey))[:127],
-            icon_path=lambda: str(app.icon_path(tray=True)),
+            icon_path=lambda: str(app.icon_path()),
             on_hotkey=dispatch,
             on_shot=dispatch_shot,
             on_open=app.open_settings,

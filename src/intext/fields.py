@@ -14,31 +14,18 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class FieldSpec:
     key: str
-    label: str
     kind: str
-    hint: str
     default: str
-    options: tuple[str, ...] = ()
 
 
 SPECS: tuple[FieldSpec, ...] = (
-    FieldSpec("temperature", "温度", "number", "部分模型不接受。", "1"),
-    FieldSpec("top_p", "top_p", "number", "通常与温度只开一个。", "1"),
-    FieldSpec("max_tokens", "最大长度", "number", "启用时填写正整数，不启用则由模型决定。", "1024"),
-    FieldSpec(
-        "reasoning_effort",
-        "思考强度",
-        "combo",
-        "可选择预设或输入模型支持的值；不接受就保持关闭。",
-        "medium",
-        ("low", "medium", "high"),
-    ),
-    FieldSpec("frequency_penalty", "频率惩罚", "number", "降低重复用词。", "0"),
-    FieldSpec("presence_penalty", "存在惩罚", "number", "鼓励新内容。", "0"),
+    FieldSpec("temperature", "number", "1"),
+    FieldSpec("top_p", "number", "1"),
+    FieldSpec("max_tokens", "number", "1024"),
+    FieldSpec("reasoning_effort", "text", "medium"),
+    FieldSpec("frequency_penalty", "number", "0"),
+    FieldSpec("presence_penalty", "number", "0"),
 )
-
-_BY_KEY = {spec.key: spec for spec in SPECS}
-
 
 def default_field_state() -> dict[str, dict]:
     return {
@@ -52,7 +39,7 @@ def normalize_field_state(raw: object) -> dict[str, dict]:
     if not isinstance(raw, dict):
         return state
     for key, item in raw.items():
-        if key not in _BY_KEY or not isinstance(item, dict):
+        if key not in state or not isinstance(item, dict):
             continue
         value = item.get("value", state[key]["value"])
         state[key] = {
@@ -62,7 +49,7 @@ def normalize_field_state(raw: object) -> dict[str, dict]:
     return state
 
 
-# Keep this identical to the number test in assets/settings.html.
+# Keep this identical to the number test in assets/settings.js.
 # The preview and the request must accept the same spellings.
 NUMBER_TEXT = r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$"
 _NUMBER = re.compile(NUMBER_TEXT)
@@ -119,11 +106,3 @@ def request_preview(model: str, source: str, target: str, fields: dict[str, dict
         messages,
         enabled_payload(fields),
     )
-
-
-def status_presentation(message: str) -> tuple[str, str | None]:
-    """Keep the popup quiet. Long failures stay behind the help button."""
-    text = " ".join(message.split())
-    if len(text) <= 12:
-        return text, None
-    return "请求失败", text
